@@ -7,6 +7,8 @@ import { Input } from './core/input';
 import { CoastLines } from './geo/coastLines';
 import { Coastline, type CoastData } from './geo/coastline';
 import { LocalProjection } from './geo/projection';
+import { DEFAULT_TERRAIN } from './terrain/height';
+import { TerrainManager } from './terrain/terrainManager';
 import { Hud } from './ui/hud';
 import { Minimap } from './ui/minimap';
 import { Water } from './water/water';
@@ -26,11 +28,18 @@ loading.textContent = 'Loading coastline…';
 app.appendChild(loading);
 
 const projection = new LocalProjection(START.lat, START.lon);
-const coastData = (await fetch('/data/coast.json').then((r) => r.json())) as CoastData;
+const COAST_URL = `${import.meta.env.BASE_URL}data/coast.json`;
+const coastData = (await fetch(COAST_URL).then((r) => r.json())) as CoastData;
 const coastline = Coastline.fromData(coastData, projection);
 loading.remove();
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// Reversed depth keeps precision at long range (water vs. seabed 10 km away). Fall back to a
+// logarithmic depth buffer where EXT_clip_control is missing.
+let renderer = new THREE.WebGLRenderer({ antialias: true, reversedDepthBuffer: true });
+if (!renderer.capabilities.reversedDepthBuffer) {
+  renderer.dispose();
+  renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -40,7 +49,7 @@ renderer.shadowMap.type = THREE.PCFShadowMap;
 app.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 50000);
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.3, 50000);
 
 const environment = new Environment(scene, renderer);
 const input = new Input();
@@ -54,7 +63,12 @@ const boat = new Boat((wind.direction + 90) % 360);
 scene.add(boat.object);
 
 const coastLines = new CoastLines(coastline);
+coastLines.object.visible = false;
 scene.add(coastLines.object);
+
+const terrainParams = { ...DEFAULT_TERRAIN };
+const terrain = new TerrainManager(new URL(COAST_URL, location.href).href, START, terrainParams);
+scene.add(terrain.group);
 
 const rig = new CameraRig(camera, renderer.domElement);
 const hud = new Hud(app);
@@ -76,6 +90,22 @@ const boatFolder = gui.addFolder('Boat');
 boatFolder.add(SAILING, 'maxSpeed', 2, 40, 0.5);
 boatFolder.add(SAILING, 'turnRate', 0.05, 1.5, 0.01);
 boatFolder.add(SAILING, 'maxHeel', 0, 40, 1);
+const terrainFolder = gui.addFolder('Terrain');
+const regenerate = () => terrain.setParams({ ...terrainParams });
+terrainFolder.add(terrainParams, 'seed', 1, 1000, 1).onFinishChange(regenerate);
+terrainFolder.add(terrainParams, 'mountainHeight', 0, 1500, 10).name('mountain height').onFinishChange(regenerate);
+terrainFolder.add(terrainParams, 'mountainCoverage', 0, 1, 0.01).name('mountain coverage').onFinishChange(regenerate);
+terrainFolder.add(terrainParams, 'hillHeight', 0, 200, 1).name('hill height').onFinishChange(regenerate);
+terrainFolder.add(terrainParams, 'coastFalloff', 100, 3000, 10).name('coast falloff').onFinishChange(regenerate);
+terrainFolder.add(terrainParams, 'ridgeScale', 500, 8000, 50).name('ridge scale').onFinishChange(regenerate);
+terrainFolder.add(terrainParams, 'warp', 0, 3000, 10).onFinishChange(regenerate);
+terrainFolder.add(terrainParams, 'regionScale', 5000, 100000, 1000).name('region scale').onFinishChange(regenerate);
+terrainFolder.add(terrainParams, 'beachSlope', 0.005, 0.2, 0.005).name('beach slope').onFinishChange(regenerate);
+terrainFolder.add(terrainParams, 'snowLine', 100, 1500, 10).name('snow line').onFinishChange(regenerate);
+terrainFolder.add(terrain.material, 'wireframe');
+terrainFolder.add(terrain.stats, 'meshes').listen().disable();
+terrainFolder.add(terrain.stats, 'queued').listen().disable();
+terrainFolder.add(terrain.stats, 'lastBuildMs').name('last build ms').listen().disable();
 const debugFolder = gui.addFolder('Debug');
 debugFolder.add(coastLines.object, 'visible').name('coastline lines (C)').listen();
 
@@ -103,6 +133,7 @@ renderer.setAnimationLoop((timestamp) => {
   water.update(time, boat.position.x, boat.position.z);
   rig.update(dt, input, boat);
   environment.follow(boat.object.position);
+  terrain.update(boat.position.x, boat.position.z);
   coastLines.update(boat.position.x, boat.position.z);
   minimap.update(dt, boat.position.x, boat.position.z, boat.state.heading);
   const geo = projection.toGeo(boat.position.x, boat.position.z);
@@ -118,4 +149,4 @@ renderer.setAnimationLoop((timestamp) => {
 });
 
 // Dev-only handle for poking at the scene from the browser console.
-if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection } });
+if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection, terrain } });

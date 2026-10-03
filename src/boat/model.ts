@@ -192,6 +192,7 @@ export class BoatModel {
   private readonly jibAxis: THREE.Vector3;
   private readonly windex = new THREE.Group();
   private sailAmount = 1;
+  private bellySide = 1;
 
   constructor() {
     this.root.add(this.tilt);
@@ -295,8 +296,10 @@ export class BoatModel {
     this.sailAmount += ((sailUp ? 1 : 0) - this.sailAmount) * (1 - Math.exp(-2.5 * dt));
     const furl = Math.max(0.02, this.sailAmount);
     const boom = THREE.MathUtils.degToRad(boomDeg);
-    // Sails bulge to leeward, i.e. the side the boom is swung to.
-    const belly = THREE.MathUtils.clamp(boomDeg / 8, -1, 1);
+    // Sails bulge to leeward, i.e. the side the boom is swung to. Never scale to zero:
+    // a degenerate scale breaks the normals and renders the sail black.
+    if (Math.abs(boomDeg) > 1) this.bellySide = Math.sign(boomDeg);
+    const belly = this.bellySide * THREE.MathUtils.clamp(Math.abs(boomDeg) / 8, 0.15, 1);
 
     this.boom.rotation.y = boom;
     this.mainsail.scale.set(belly, furl, 1);

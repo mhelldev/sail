@@ -37,7 +37,7 @@ export class Environment {
     scene.environmentIntensity = 0.8;
     pmrem.dispose();
 
-    scene.fog = new THREE.Fog(FOG_COLOR, 1500, 9000);
+    scene.fog = new THREE.Fog(FOG_COLOR, 2500, 14000);
 
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);

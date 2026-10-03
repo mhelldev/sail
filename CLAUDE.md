@@ -25,6 +25,8 @@ project at `/Users/michael/projects/godot/boat3d`.
 - Keep game logic that can be pure (no three.js) in testable modules (`boat/sailing.ts`, `water/waves.ts`).
 - Geo data is stored as lon/lat and projected at load time with `geo/projection.ts` around the fixed
   start point (equirectangular; fine within ~200 km, revisit with a floating origin for long voyages).
+- The renderer uses a reversed depth buffer (log depth fallback): without it the water and the seabed
+  z-fight a few km away. Keep it when touching renderer setup.
 - `water/waves.ts` (CPU) and the GLSL in `water/water.ts` implement the same Gerstner waves — change both together.
 
 ## Roadmap
@@ -35,6 +37,8 @@ project at `/Users/michael/projects/godot/boat3d`.
    cancel out; the source lists France twice, so duplicate rings are skipped). `geo/coastline.ts` answers
    land/water (ray crossing parity) and signed distance to coast; `sampleGrid` does a whole chunk at once.
    Minimap + coastline debug lines (C) + HUD position/coast distance.
-4. Terrain: chunks streamed around the boat, heights = coast mask × ridged/domain-warped noise, built in a
-   Web Worker
+4. ✅ Terrain: 2 km chunks within 11 km of the boat (LOD 64/32/16 cells, skirts hide LOD cracks), built by a
+   worker pool (`terrain/terrain.worker.ts`). `terrain/height.ts` is a pure function of world position +
+   signed coast distance: seabed → shore bank → beach → coastal falloff → hills + ridged, domain-warped
+   mountains, with a large-scale "mountainousness" region mask. Tunable live in the GUI (G → Terrain).
 5. Land collision + polish

@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { WAVE_COUNT, maxHeight, type WaveField } from './waves';
 
-const SIZE = 12000; // metres across
-const SEGMENTS = 320;
-// Vertex spacing grows with distance: ~1.5 m near the boat, ~100 m+ at the horizon.
-const CENTER_DENSITY = 0.04;
+const SIZE = 32000; // metres across, beyond the farthest terrain
+const SEGMENTS = 360;
+// Vertex spacing grows with distance: ~1.5 m near the boat, a few hundred metres at the horizon.
+const CENTER_DENSITY = 0.017;
 
 /** Grid whose vertices are packed densely at the centre and sparsely at the edges. */
 function createWaterGeometry(): THREE.BufferGeometry {
