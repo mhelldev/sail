@@ -105,7 +105,7 @@ function createHullMaterial(): THREE.MeshStandardMaterial {
         vec3 paint = vec3(0.55, 0.13, 0.11);
         paint = mix(paint, vec3(0.06, 0.13, 0.24), smoothstep(0.05 - aa, 0.05 + aa, vHullY));
         paint = mix(paint, vec3(0.92, 0.91, 0.88), smoothstep(0.2 - aa, 0.2 + aa, vHullY));
-        diffuseColor.rgb *= paint;
+        diffuseColor.rgb *= pow(paint, vec3(2.2)); // sRGB picks → linear
         `,
       );
   };

@@ -13,6 +13,7 @@ export interface NavInfo {
   /** Signed distance to the coast in metres, positive on land. */
   coastDistance: number;
   maxDistance: number;
+  grounded: boolean;
 }
 
 function formatCoord(v: number, pos: string, neg: string): string {
@@ -61,7 +62,7 @@ export class Hud {
       </svg>
       <div class="hud-help">
         <b>←/→</b> or <b>A/D</b> steer · <b>S</b> sail up/down · <b>T</b> turbo ·
-        <b>1</b> chase · <b>2</b> deck · <b>3</b> top · <b>M</b> map range · <b>C</b> coastline · <b>G</b> tuning
+        <b>1</b> chase · <b>2</b> deck · <b>3</b> top · <b>M</b> map range · <b>R</b> back to start · <b>G</b> tuning
       </div>`;
     parent.appendChild(el);
     const q = <T extends Element>(sel: string) => el.querySelector(sel) as T;
@@ -80,8 +81,8 @@ export class Hud {
       this.pos.textContent = `${formatCoord(nav.lat, 'N', 'S')}  ${formatCoord(nav.lon, 'E', 'W')}`;
       const d = Math.abs(nav.coastDistance);
       const dist = d >= nav.maxDistance ? `> ${nav.maxDistance / 1000} km` : d >= 1000 ? `${(d / 1000).toFixed(1)} km` : `${Math.round(d)} m`;
-      this.coast.textContent = nav.coastDistance > 0 ? `ON LAND · ${dist} inland` : `Coast ${dist}`;
-      this.coast.classList.toggle('hud-warn', nav.coastDistance > -100);
+      this.coast.textContent = nav.grounded ? 'AGROUND · turn away from the shore' : `Coast ${dist}`;
+      this.coast.classList.toggle('hud-warn', nav.grounded || nav.coastDistance > -100);
     }
     const { heading, speed } = boat.state;
     const angle = windAngle(heading, wind.direction);

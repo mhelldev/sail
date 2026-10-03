@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { WAVE_COUNT, maxHeight, type WaveField } from './waves';
+import type { ShoreMap } from './shoreMap';
+import { SHORE_RANGE, WAVE_COUNT, maxHeight, type WaveField } from './waves';
 
 const SIZE = 32000; // metres across, beyond the farthest terrain
 const SEGMENTS = 360;
@@ -36,19 +37,42 @@ function createWaterGeometry(): THREE.BufferGeometry {
   return geo;
 }
 
+// Shore distance lookup, shared by vertex and fragment shader. Mirrors ShoreMap.sample.
+const SHORE_GLSL = /* glsl */ `
+uniform sampler2D uShore;
+uniform vec4 uShoreRect; // x0, z0, step, res (res = 0 while no map is loaded)
+uniform float uShoreRange;
+uniform float uTime;
+
+float shoreDistance(vec2 p) {
+  vec2 f = (p - uShoreRect.xy) / uShoreRect.z;
+  if (uShoreRect.w < 1.0 || any(lessThan(f, vec2(0.0))) || any(greaterThan(f, vec2(uShoreRect.w - 1.0)))) {
+    return -uShoreRange;
+  }
+  vec2 uv = (f + 0.5) / uShoreRect.w;
+  return textureLod(uShore, uv, 0.0).r * 2.0 * uShoreRange - uShoreRange;
+}
+
+// Mirrors shoreDamping in waves.ts.
+float shoreDamping(float sd) {
+  return 1.0 - 0.85 * smoothstep(-150.0, -5.0, sd);
+}
+`;
+
 // Mirrors `displace` in waves.ts, plus analytic normals.
 const WAVE_GLSL = /* glsl */ `
-uniform float uTime;
+${SHORE_GLSL}
 uniform float uAmplitude;
 uniform float uMaxHeight;
 uniform vec2 uCenter;
 uniform vec2 uFade;
 uniform vec4 uWaves[${WAVE_COUNT}]; // dirX, dirZ, steepness, length
 varying float vCrest;
+varying vec2 vWaterXZ;
 
 void gerstner(vec2 p, out vec3 disp, out vec3 normal) {
   float d = length(p - uCenter);
-  float amp = uAmplitude * (1.0 - smoothstep(uFade.x, uFade.y, d));
+  float amp = uAmplitude * (1.0 - smoothstep(uFade.x, uFade.y, d)) * shoreDamping(shoreDistance(p));
   vec3 tangent = vec3(1.0, 0.0, 0.0);
   vec3 binormal = vec3(0.0, 0.0, 1.0);
   disp = vec3(0.0);
@@ -78,9 +102,16 @@ export class Water {
     uCenter: { value: new THREE.Vector2() },
     uFade: { value: new THREE.Vector2() },
     uWaves: { value: Array.from({ length: WAVE_COUNT }, () => new THREE.Vector4()) },
+    uShore: { value: null as THREE.Texture | null },
+    uShoreRect: { value: new THREE.Vector4() },
+    uShoreRange: { value: SHORE_RANGE },
   };
 
-  constructor(private readonly field: WaveField) {
+  constructor(
+    private readonly field: WaveField,
+    private readonly shore?: ShoreMap,
+  ) {
+    this.uniforms.uShore.value = shore?.texture ?? null;
     const material = new THREE.MeshPhysicalMaterial({
       color: 0x0b3a55,
       roughness: 0.22,
@@ -100,6 +131,7 @@ export class Water {
           vec3 objectNormal;
           gerstner(waveWorld.xz, waveDisp, objectNormal);
           vCrest = waveDisp.y / max(uMaxHeight, 0.001);
+          vWaterXZ = waveWorld.xz + waveDisp.xz;
           #ifdef USE_TANGENT
             vec3 objectTangent = vec3(1.0, 0.0, 0.0);
           #endif
@@ -108,14 +140,22 @@ export class Water {
         // The mesh is never rotated or scaled, so a world offset equals a local offset.
         .replace('#include <begin_vertex>', 'vec3 transformed = position + waveDisp;');
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying float vCrest;')
+        .replace('#include <common>', `#include <common>\nvarying float vCrest;\nvarying vec2 vWaterXZ;\n${SHORE_GLSL}`)
         .replace(
           '#include <color_fragment>',
           /* glsl */ `
           #include <color_fragment>
-          float foam = smoothstep(0.6, 1.0, vCrest);
+          float sd = shoreDistance(vWaterXZ);
+          // Crest foam out at sea, lighter turquoise in the shallows.
+          float foam = smoothstep(0.6, 1.0, vCrest) * 0.4;
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.1, 0.36, 0.42), smoothstep(-0.1, 0.8, vCrest) * 0.5);
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.92, 0.96, 0.98), foam * 0.4);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.13, 0.48, 0.47), smoothstep(-110.0, -5.0, sd) * 0.5);
+          // Surf: a thin foam edge at the shoreline plus a few lines rolling in towards it.
+          float lines = 0.5 + 0.5 * sin(sd * 0.3 - uTime * 1.4 + sin(vWaterXZ.x * 0.05 + vWaterXZ.y * 0.04) * 2.0);
+          float edge = (1.0 - smoothstep(0.0, 7.0, -sd)) * (0.5 + 0.5 * lines);
+          float rollers = (1.0 - smoothstep(6.0, 40.0, -sd)) * smoothstep(0.9, 0.99, lines) * 0.45;
+          foam = max(foam, max(edge, rollers));
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.85, 0.9, 0.92), foam * 0.8);
           `,
         );
     };
@@ -137,5 +177,8 @@ export class Water {
     u.uCenter.value.set(followX, followZ);
     u.uFade.value.set(f.fadeStart, f.fadeEnd);
     f.waves.forEach((w, i) => u.uWaves.value[i].set(w.dirX, w.dirZ, w.steepness, w.length));
+    const shore = this.shore;
+    if (shore?.valid) u.uShoreRect.value.set(shore.x0, shore.z0, shore.step, shore.res);
+    else u.uShoreRect.value.set(0, 0, 1, 0);
   }
 }

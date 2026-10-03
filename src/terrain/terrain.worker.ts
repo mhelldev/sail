@@ -4,15 +4,18 @@
 import { Coastline, type CoastData } from '../geo/coastline';
 import { LocalProjection } from '../geo/projection';
 import { buildChunk, type ChunkRequest } from './buildChunk';
+import { encodeShore, SHORE_RANGE } from '../water/waves';
 import { createTerrainSampler, type TerrainParams, type TerrainSampler } from './height';
 
 export type WorkerRequest =
   | { type: 'init'; coastUrl: string; origin: { lat: number; lon: number }; params: TerrainParams }
   | { type: 'params'; params: TerrainParams }
-  | ({ type: 'build'; id: number } & ChunkRequest);
+  | ({ type: 'build'; id: number } & ChunkRequest)
+  | { type: 'shore'; id: number; x0: number; z0: number; step: number; res: number };
 
 export type WorkerResponse =
   | { type: 'ready' }
+  | { type: 'shore'; id: number; data: Uint8Array }
   | {
       type: 'chunk';
       id: number;
@@ -47,6 +50,12 @@ ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
 function handle(msg: WorkerRequest): void {
   if (msg.type === 'params') {
     sampler = createTerrainSampler(msg.params);
+    return;
+  }
+  if (msg.type === 'shore' && coast) {
+    const sd = coast.sampleGrid(msg.x0, msg.z0, msg.step, msg.res, SHORE_RANGE);
+    const data = encodeShore(sd);
+    ctx.postMessage({ type: 'shore', id: msg.id, data } satisfies WorkerResponse, [data.buffer]);
     return;
   }
   if (msg.type !== 'build' || !coast || !sampler) return;

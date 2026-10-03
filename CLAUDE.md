@@ -13,7 +13,7 @@ project at `/Users/michael/projects/godot/boat3d`.
 ## Commands
 
 - `npm run dev` — dev server
-- `npm test` — Vitest unit tests (pure logic: sailing model, waves, input)
+- `npm test` — Vitest unit tests (pure logic: sailing, collision, waves, shore map, geo, terrain)
 - `npm run typecheck` / `npm run build`
 - `npm run geo` — regenerate `public/data/coast.json` from `boat3d/europe.geo.json` (read-only input)
 
@@ -27,6 +27,8 @@ project at `/Users/michael/projects/godot/boat3d`.
   start point (equirectangular; fine within ~200 km, revisit with a floating origin for long voyages).
 - The renderer uses a reversed depth buffer (log depth fallback): without it the water and the seabed
   z-fight a few km away. Keep it when touching renderer setup.
+- Vertex colours and shader colour constants are linear: pick colours in sRGB and convert
+  (`srgbToLinear` in terrain, `pow(c, 2.2)` in GLSL), otherwise everything renders washed out.
 - `water/waves.ts` (CPU) and the GLSL in `water/water.ts` implement the same Gerstner waves — change both together.
 
 ## Roadmap
@@ -41,4 +43,14 @@ project at `/Users/michael/projects/godot/boat3d`.
    worker pool (`terrain/terrain.worker.ts`). `terrain/height.ts` is a pure function of world position +
    signed coast distance: seabed → shore bank → beach → coastal falloff → hills + ridged, domain-warped
    mountains, with a large-scale "mountainousness" region mask. Tunable live in the GUI (G → Terrain).
-5. Land collision + polish
+5. ✅ Land collision + polish: `boat/collision.ts` (hull probes against the coast's signed distance: block,
+   slide along the shore, depenetrate after turning, spawn in open water). `water/shoreMap.ts`: worker-built
+   distance-to-coast texture around the boat → waves calm in the shallows (same damping on CPU via
+   `shoreDamping`), turquoise shallows and surf foam. Boat position/heading/sail saved in localStorage
+   (`core/save.ts`, R resets to start).
+
+## Ideas for later
+
+- Higher-resolution coastline (OSM land polygons) — only `public/data/coast.json` needs to change
+- Floating origin for voyages far beyond ~200 km from the start
+- Harbors, other vessels, real weather (deliberately out of scope so far)

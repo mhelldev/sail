@@ -49,6 +49,8 @@ const smoothstep = (e0: number, e1: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
+const srgbToLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+
 export interface TerrainSampler {
   readonly params: TerrainParams;
   /** Height in metres for a point with signed coast distance `sd` (positive on land). */
@@ -160,9 +162,10 @@ export function createTerrainSampler(params: TerrainParams): TerrainSampler {
         g += (0.96 - g) * snow;
         b += (0.98 - b) * snow;
       }
-      out[o] = r;
-      out[o + 1] = g;
-      out[o + 2] = b;
+      // Colours above are picked in sRGB; vertex colours are linear.
+      out[o] = srgbToLinear(r);
+      out[o + 1] = srgbToLinear(g);
+      out[o + 2] = srgbToLinear(b);
     },
   };
 }

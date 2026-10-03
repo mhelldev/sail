@@ -4,6 +4,7 @@ import { Boat } from './boat/boat';
 import { SAILING } from './boat/sailing';
 import { CameraRig } from './camera/cameraRig';
 import { Input } from './core/input';
+import { clearSavedBoat, loadBoat, saveBoat } from './core/save';
 import { CoastLines } from './geo/coastLines';
 import { Coastline, type CoastData } from './geo/coastline';
 import { LocalProjection } from './geo/projection';
@@ -11,6 +12,7 @@ import { DEFAULT_TERRAIN } from './terrain/height';
 import { TerrainManager } from './terrain/terrainManager';
 import { Hud } from './ui/hud';
 import { Minimap } from './ui/minimap';
+import { ShoreMap } from './water/shoreMap';
 import { Water } from './water/water';
 import { createWaveField } from './water/waves';
 import { Wind } from './weather/wind';
@@ -54,21 +56,51 @@ const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerH
 const environment = new Environment(scene, renderer);
 const input = new Input();
 const wind = new Wind();
-const waves = createWaveField(wind.direction);
-const water = new Water(waves);
-scene.add(water.mesh);
-
-// Start on a beam reach so the boat gets going right away.
-const boat = new Boat((wind.direction + 90) % 360);
-scene.add(boat.object);
-
-const coastLines = new CoastLines(coastline);
-coastLines.object.visible = false;
-scene.add(coastLines.object);
 
 const terrainParams = { ...DEFAULT_TERRAIN };
 const terrain = new TerrainManager(new URL(COAST_URL, location.href).href, START, terrainParams);
 scene.add(terrain.group);
+
+// Distance-to-coast texture around the boat: calms the waves in the shallows and draws surf.
+const shoreMap = new ShoreMap((x0, z0, step, res) => terrain.computeShore(x0, z0, step, res));
+const waves = createWaveField(wind.direction);
+waves.shore = (x, z) => shoreMap.sample(x, z);
+const water = new Water(waves, shoreMap);
+scene.add(water.mesh);
+
+const boat = new Boat();
+boat.landDistance = (x, z) => coastline.signedDistance(x, z, 100);
+scene.add(boat.object);
+
+/** Back to the Godot start position, on a beam reach so the boat gets going right away. */
+function resetBoat(): void {
+  boat.position.set(0, 0, 0);
+  boat.state = { ...boat.state, heading: (wind.direction + 90) % 360, speed: 0, turnSpeed: 0 };
+  boat.sailUp = true;
+  boat.placeInWater();
+}
+
+const saved = loadBoat();
+if (saved) {
+  const p = projection.toWorld(saved.lon, saved.lat);
+  boat.position.set(p.x, 0, p.z);
+  boat.state = { ...boat.state, heading: saved.heading };
+  boat.sailUp = saved.sailUp;
+  boat.placeInWater();
+} else {
+  resetBoat();
+}
+
+const persist = () => {
+  const g = projection.toGeo(boat.position.x, boat.position.z);
+  saveBoat({ lat: g.lat, lon: g.lon, heading: boat.state.heading, sailUp: boat.sailUp });
+};
+window.setInterval(persist, 5000);
+window.addEventListener('pagehide', persist);
+
+const coastLines = new CoastLines(coastline);
+coastLines.object.visible = false;
+scene.add(coastLines.object);
 
 const rig = new CameraRig(camera, renderer.domElement);
 const hud = new Hud(app);
@@ -124,6 +156,10 @@ renderer.setAnimationLoop((timestamp) => {
   if (input.wasPressed('KeyG')) gui.show((guiVisible = !guiVisible));
   if (input.wasPressed('KeyC')) coastLines.object.visible = !coastLines.object.visible;
   if (input.wasPressed('KeyM')) minimap.zoom();
+  if (input.wasPressed('KeyR')) {
+    clearSavedBoat();
+    resetBoat();
+  }
 
   wind.update(time);
   // Sea state follows the wind: calm below ~3 m/s, fully developed around 15 m/s.
@@ -134,6 +170,7 @@ renderer.setAnimationLoop((timestamp) => {
   rig.update(dt, input, boat);
   environment.follow(boat.object.position);
   terrain.update(boat.position.x, boat.position.z);
+  shoreMap.update(boat.position.x, boat.position.z);
   coastLines.update(boat.position.x, boat.position.z);
   minimap.update(dt, boat.position.x, boat.position.z, boat.state.heading);
   const geo = projection.toGeo(boat.position.x, boat.position.z);
@@ -142,6 +179,7 @@ renderer.setAnimationLoop((timestamp) => {
     lon: geo.lon,
     coastDistance: coastline.signedDistance(boat.position.x, boat.position.z, COAST_QUERY_RANGE),
     maxDistance: COAST_QUERY_RANGE,
+    grounded: boat.grounded,
   });
 
   renderer.render(scene, camera);
@@ -149,4 +187,4 @@ renderer.setAnimationLoop((timestamp) => {
 });
 
 // Dev-only handle for poking at the scene from the browser console.
-if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection, terrain } });
+if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection, terrain, shoreMap } });

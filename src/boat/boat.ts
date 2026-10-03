@@ -2,14 +2,21 @@ import * as THREE from 'three';
 import type { Input } from '../core/input';
 import { heightAt, type WaveField } from '../water/waves';
 import type { Wind } from '../weather/wind';
+import { depenetrate, findOpenWater, resolveMotion, type HullShape, type SignedDistanceFn } from './collision';
 import { BoatModel, PROBES } from './model';
 import { createSailingState, relativeWind, stepSailing, type SailingState } from './sailing';
+
+const HULL: HullShape = { halfLength: 5, halfBeam: 1.6, clearance: 1.5 };
 
 export class Boat {
   readonly model = new BoatModel();
   state: SailingState;
   sailUp = true;
   turbo = false;
+  /** True while the hull is touching land. */
+  grounded = false;
+  /** Signed distance to land (positive on land); without it the boat sails anywhere. */
+  landDistance?: SignedDistanceFn;
   /** World position on the water plane (y is driven by the waves). */
   readonly position = new THREE.Vector3();
 
@@ -52,7 +59,28 @@ export class Boat {
     );
 
     const fwd = this.forward();
-    this.position.addScaledVector(fwd, this.state.speed * dt);
+    const sd = this.landDistance;
+    if (sd) {
+      // A turn next to the shore may swing the bow or stern into it: push the hull back out.
+      const { x, z } = depenetrate(this.position.x, this.position.z, this.state.heading, HULL, sd);
+      this.position.x = x;
+      this.position.z = z;
+      const move = resolveMotion(x, z, this.state.heading, fwd.x * this.state.speed * dt, fwd.z * this.state.speed * dt, HULL, sd);
+      if (move.grounded && !this.grounded && this.state.speed > 1.5) {
+        // Impact: the bow rides up a little.
+        this.pitch += Math.min(0.12, this.state.speed * 0.02);
+      }
+      this.grounded = move.grounded;
+      if (move.grounded) {
+        // Scraping along the shore: speed follows what the hull actually manages to move.
+        const moved = Math.hypot(move.dx, move.dz) / Math.max(dt, 1e-6);
+        this.state = { ...this.state, speed: Math.min(this.state.speed, moved) };
+      }
+      this.position.x += move.dx;
+      this.position.z += move.dz;
+    } else {
+      this.position.addScaledVector(fwd, this.state.speed * dt);
+    }
 
     this.followWaves(dt, time, waves, fwd);
 
@@ -68,6 +96,13 @@ export class Boat {
       this.sailUp,
       dt,
     );
+  }
+
+  /** Moves the boat to the nearest open water if it starts on (or too close to) land. */
+  placeInWater(): void {
+    if (!this.landDistance) return;
+    const p = findOpenWater(this.position.x, this.position.z, HULL, this.landDistance);
+    this.position.set(p.x, 0, p.z);
   }
 
   /** Heave, pitch and roll from the water height under bow, stern and both sides. */

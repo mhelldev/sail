@@ -51,6 +51,7 @@ export class TerrainManager {
   private nextJobId = 1;
   private version = 1;
   private readonly lastPlan = new THREE.Vector2(Infinity, Infinity);
+  private readonly shoreRequests = new Map<number, (data: Uint8Array) => void>();
 
   constructor(coastUrl: string, origin: { lat: number; lon: number }, params: TerrainParams) {
     const count = Math.max(1, Math.min(4, (navigator.hardwareConcurrency ?? 4) - 1));
@@ -61,6 +62,16 @@ export class TerrainManager {
       this.workers.push(worker);
       this.busy.push(0);
     }
+  }
+
+  /** Signed coast distance grid for the water's shore map, computed on a worker. */
+  computeShore(x0: number, z0: number, step: number, res: number): Promise<Uint8Array> {
+    const id = this.nextJobId++;
+    const worker = this.busy.indexOf(Math.min(...this.busy));
+    return new Promise((resolve) => {
+      this.shoreRequests.set(id, resolve);
+      this.workers[worker].postMessage({ type: 'shore', id, x0, z0, step, res } satisfies WorkerRequest);
+    });
   }
 
   /** Rebuild everything with new parameters (from the tuning panel). */
@@ -145,6 +156,11 @@ export class TerrainManager {
   }
 
   private onMessage(worker: number, msg: WorkerResponse): void {
+    if (msg.type === 'shore') {
+      this.shoreRequests.get(msg.id)?.(msg.data);
+      this.shoreRequests.delete(msg.id);
+      return;
+    }
     if (msg.type !== 'chunk') return;
     const job = this.jobs.get(msg.id);
     if (!job) return;

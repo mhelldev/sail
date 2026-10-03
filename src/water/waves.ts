@@ -10,8 +10,29 @@ export interface Wave {
   length: number; // wavelength in metres
 }
 
+/** Signed coast distances are stored and compared within ±SHORE_RANGE metres. */
+export const SHORE_RANGE = 250;
+
+/** Wave amplitude multiplier by signed distance to the coast: waves calm down in the shallows. */
+export function shoreDamping(sd: number): number {
+  const t = Math.min(1, Math.max(0, (sd + 150) / 145));
+  return 1 - 0.85 * t * t * (3 - 2 * t);
+}
+
+/** Packs signed distances into bytes: 0 = SHORE_RANGE out at sea, 255 = SHORE_RANGE inland. */
+export function encodeShore(sd: Float32Array): Uint8Array {
+  const out = new Uint8Array(sd.length);
+  for (let i = 0; i < sd.length; i++) {
+    const t = (Math.max(-SHORE_RANGE, Math.min(SHORE_RANGE, sd[i])) + SHORE_RANGE) / (2 * SHORE_RANGE);
+    out[i] = Math.round(t * 255);
+  }
+  return out;
+}
+
 export interface WaveField {
   waves: Wave[];
+  /** Signed distance to the coast (positive on land); waves are damped near the shore. */
+  shore?: (x: number, z: number) => number;
   amplitude: number; // global multiplier on steepness, 0 = flat sea
   fadeStart: number; // metres from the centre where waves start to flatten (hides aliasing)
   fadeEnd: number;
@@ -57,7 +78,7 @@ function fade(f: WaveField, x: number, z: number): number {
 /** Displacement of the undisturbed water point (x, z) at time t. */
 export function displace(f: WaveField, x: number, z: number, t: number, out: Displacement): Displacement {
   out.x = out.y = out.z = 0;
-  const amp = f.amplitude * fade(f, x, z);
+  const amp = f.amplitude * fade(f, x, z) * (f.shore ? shoreDamping(f.shore(x, z)) : 1);
   for (const w of f.waves) {
     const k = (2 * Math.PI) / w.length;
     const c = Math.sqrt(G / k);
