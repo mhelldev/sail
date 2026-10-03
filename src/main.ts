@@ -4,6 +4,7 @@ import { Boat } from './boat/boat';
 import { SAILING } from './boat/sailing';
 import { CameraRig } from './camera/cameraRig';
 import { Input } from './core/input';
+import { TouchControls } from './core/touchControls';
 import { clearSavedBoat, loadBoat, saveBoat } from './core/save';
 import { CoastLines } from './geo/coastLines';
 import { Coastline, type CoastData } from './geo/coastline';
@@ -12,6 +13,7 @@ import { DEFAULT_TERRAIN } from './terrain/height';
 import { TerrainManager } from './terrain/terrainManager';
 import { Hud } from './ui/hud';
 import { Minimap } from './ui/minimap';
+import { TouchUi } from './ui/touchUi';
 import { ShoreMap } from './water/shoreMap';
 import { WakeTrail } from './water/wake';
 import { Water } from './water/water';
@@ -107,6 +109,8 @@ scene.add(coastLines.object);
 const rig = new CameraRig(camera, renderer.domElement);
 const hud = new Hud(app);
 const minimap = new Minimap(app, coastline);
+const touch = new TouchControls(renderer.domElement, () => boat.helm.position, rig);
+const touchUi = new TouchUi(app, input, () => rig.nextModeKey());
 
 // Debug / tuning panel (press G to toggle).
 const gui = new GUI({ title: 'Tuning' });
@@ -169,7 +173,7 @@ renderer.setAnimationLoop((timestamp) => {
   // Sea state follows the wind: calm below ~3 m/s, fully developed around 15 m/s.
   const seaState = THREE.MathUtils.clamp(wind.speed / 15, 0.15, 1);
   waves.amplitude += (waveTuning.scale * seaState - waves.amplitude) * (1 - Math.exp(-0.2 * dt));
-  boat.update(dt, time, input, wind, waves);
+  boat.update(dt, time, input, wind, waves, touch.steer);
   const fwd = boat.forward();
   wake.update(boat.position.x - fwd.x * 4.8, boat.position.z - fwd.z * 4.8, boat.state.speed);
   water.setBoat(boat.position.x, boat.position.z, boat.state.heading, boat.state.speed);
@@ -181,6 +185,7 @@ renderer.setAnimationLoop((timestamp) => {
   coastLines.update(boat.position.x, boat.position.z);
   minimap.update(dt, boat.position.x, boat.position.z, boat.state.heading);
   const geo = projection.toGeo(boat.position.x, boat.position.z);
+  touchUi.update(boat.helm.wheelAngle, boat.sailUp, rig.mode !== 'deck');
   hud.update(boat, wind, {
     lat: geo.lat,
     lon: geo.lon,

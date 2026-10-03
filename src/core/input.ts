@@ -22,6 +22,11 @@ export class Input {
     return this.pressed.has(code);
   }
 
+  /** Acts like a key press this frame (on-screen buttons). */
+  trigger(code: string): void {
+    this.pressed.add(code);
+  }
+
   /** Call at the end of each frame. */
   endFrame(): void {
     this.pressed.clear();

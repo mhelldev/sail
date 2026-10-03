@@ -3,6 +3,7 @@ import type { Input } from '../core/input';
 import { heightAt, type WaveField } from '../water/waves';
 import type { Wind } from '../weather/wind';
 import { depenetrate, findOpenWater, resolveMotion, type HullShape, type SignedDistanceFn } from './collision';
+import { Helm } from './helm';
 import { BoatModel, PROBES } from './model';
 import { createSailingState, relativeWind, stepSailing, type SailingState } from './sailing';
 
@@ -19,8 +20,8 @@ export class Boat {
   landDistance?: SignedDistanceFn;
   /** World position on the water plane (y is driven by the waves). */
   readonly position = new THREE.Vector3();
-
-  private wheelTurn = 0;
+  /** Steering wheel; the rudder follows it. */
+  readonly helm = new Helm();
   private pitch = 0;
   private roll = 0;
   private heave = 0;
@@ -39,20 +40,21 @@ export class Boat {
     return out.set(Math.sin(h), 0, -Math.cos(h));
   }
 
-  update(dt: number, time: number, input: Input, wind: Wind, waves: WaveField, steeringEnabled = true): void {
+  /**
+   * @param touchSteer helm position held by a finger (touch screens), or null
+   */
+  update(dt: number, time: number, input: Input, wind: Wind, waves: WaveField, touchSteer: number | null = null): void {
     if (input.wasPressed('KeyS')) this.sailUp = !this.sailUp;
     if (input.wasPressed('KeyT')) this.turbo = !this.turbo;
 
-    let steer = 0;
-    if (steeringEnabled) {
-      if (input.isDown('ArrowLeft', 'KeyA')) steer -= 1;
-      if (input.isDown('ArrowRight', 'KeyD')) steer += 1;
-    }
-    this.wheelTurn += steer * dt * 2.5;
+    let keys = 0;
+    if (input.isDown('ArrowLeft', 'KeyA')) keys -= 1;
+    if (input.isDown('ArrowRight', 'KeyD')) keys += 1;
+    this.helm.update(dt, keys, touchSteer);
 
     this.state = stepSailing(
       this.state,
-      { steer, sailUp: this.sailUp, turbo: this.turbo },
+      { steer: this.helm.position, sailUp: this.sailUp, turbo: this.turbo },
       wind.direction,
       wind.speed,
       dt,
@@ -92,7 +94,8 @@ export class Boat {
     this.model.update(
       this.state.boom,
       relativeWind(this.state.heading, wind.direction),
-      this.wheelTurn,
+      // The wheel faces aft; clockwise for the helmsman is a negative turn around +Z.
+      -this.helm.wheelAngle,
       this.sailUp,
       dt,
     );

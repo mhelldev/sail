@@ -1,6 +1,10 @@
 html,
 body {
   margin: 0;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   height: 100%;
   overflow: hidden;
   background: #0b1d2a;
@@ -98,7 +102,7 @@ canvas {
   white-space: nowrap;
 }
 
-.lil-gui.root {
+.lil-gui.lil-root {
   top: 150px !important;
 }
 
@@ -123,12 +127,14 @@ canvas {
   border-radius: 50%;
   box-shadow: 0 0 0 2px rgb(255 255 255 / 0.4), 0 4px 16px rgb(0 0 0 / 0.3);
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .minimap canvas {
-  width: 180px;
-  height: 180px;
+  width: 100%;
+  height: 100%;
   display: block;
+  border-radius: 50%;
 }
 
 .minimap-range {
@@ -149,4 +155,139 @@ canvas {
   place-items: center;
   color: #f4f7f9;
   font-size: 15px;
+}
+
+/* ---- Touch controls (shown when body.touch is set) ---- */
+
+.touch-ui {
+  display: none;
+}
+
+body.touch .touch-ui {
+  display: block;
+}
+
+body.touch .hud-help,
+body.touch .lil-gui.lil-root {
+  display: none;
+}
+
+.touch-helm {
+  position: fixed;
+  left: 50%;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  width: 112px;
+  height: 112px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  opacity: 0.85;
+  filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.35));
+}
+
+.touch-helm g {
+  transform-origin: 0 0;
+}
+
+.touch-helm line {
+  stroke: #e9dcc4;
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.touch-helm-rim {
+  fill: none;
+  stroke: #b07a46;
+  stroke-width: 7;
+}
+
+.touch-helm-handle,
+.touch-helm-hub {
+  fill: #b07a46;
+}
+
+.touch-helm-top {
+  fill: #e63946;
+}
+
+.touch-buttons {
+  position: fixed;
+  left: calc(14px + env(safe-area-inset-left));
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.touch-buttons button {
+  min-width: 92px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 22px;
+  background: rgb(8 28 40 / 0.6);
+  backdrop-filter: blur(6px);
+  color: #f4f7f9;
+  font: 600 14px system-ui, -apple-system, sans-serif;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.25);
+  touch-action: manipulation;
+}
+
+.touch-buttons button:active {
+  background: rgb(8 28 40 / 0.85);
+}
+
+.touch-hint {
+  position: fixed;
+  left: 50%;
+  bottom: calc(140px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgb(8 28 40 / 0.6);
+  color: #f4f7f9;
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+  transition: opacity 0.8s;
+}
+
+.touch-hint-hidden {
+  opacity: 0;
+}
+
+/* ---- Small screens ---- */
+
+@media (max-width: 640px) {
+  .hud-panel {
+    top: calc(10px + env(safe-area-inset-top));
+    left: 10px;
+    min-width: 0;
+    padding: 8px 12px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .hud-big {
+    font-size: 26px;
+  }
+
+  .hud-wind {
+    top: calc(10px + env(safe-area-inset-top));
+    right: 10px;
+    width: 84px;
+    height: 84px;
+  }
+
+  .minimap {
+    right: calc(12px + env(safe-area-inset-right));
+    bottom: calc(14px + env(safe-area-inset-bottom));
+    width: 120px;
+    height: 120px;
+  }
+
+  .touch-helm {
+    width: 96px;
+    height: 96px;
+  }
 }

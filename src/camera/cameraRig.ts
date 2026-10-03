@@ -32,37 +32,55 @@ export class CameraRig {
     readonly camera: THREE.PerspectiveCamera,
     dom: HTMLElement,
   ) {
+    // Mouse / pen only: on touch screens one finger steers and TouchControls calls orbit/zoom.
     let dragging = false;
     dom.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') return;
       dragging = true;
       dom.setPointerCapture(e.pointerId);
     });
     dom.addEventListener('pointerup', (e) => {
+      if (!dragging) return;
       dragging = false;
       dom.releasePointerCapture(e.pointerId);
     });
     dom.addEventListener('pointermove', (e) => {
-      if (!dragging) return;
-      const dx = e.movementX * 0.005;
-      const dy = e.movementY * 0.005;
-      if (this.mode === 'chase') {
-        this.yaw -= dx;
-        this.pitch = THREE.MathUtils.clamp(this.pitch + dy, -0.05, 1.45);
-      } else if (this.mode === 'deck') {
-        this.lookYaw -= dx;
-        this.lookPitch = THREE.MathUtils.clamp(this.lookPitch - dy, -1.2, 1.2);
-      }
+      if (dragging) this.orbit(e.movementX, e.movementY);
     });
     dom.addEventListener(
       'wheel',
       (e) => {
         e.preventDefault();
-        const f = Math.exp(e.deltaY * 0.001);
-        if (this.mode === 'chase') this.distance = THREE.MathUtils.clamp(this.distance * f, 8, 600);
-        if (this.mode === 'top') this.topHeight = THREE.MathUtils.clamp(this.topHeight * f, 40, 20000);
+        this.zoom(Math.exp(e.deltaY * 0.001));
       },
       { passive: false },
     );
+  }
+
+  /** Orbit (chase) or look around (deck) by a screen-space drag in pixels. */
+  orbit(dxPx: number, dyPx: number): void {
+    const dx = dxPx * 0.005;
+    const dy = dyPx * 0.005;
+    if (this.mode === 'chase') {
+      this.yaw -= dx;
+      this.pitch = THREE.MathUtils.clamp(this.pitch + dy, -0.05, 1.45);
+    } else if (this.mode === 'deck') {
+      this.lookYaw -= dx;
+      this.lookPitch = THREE.MathUtils.clamp(this.lookPitch - dy, -1.2, 1.2);
+    }
+  }
+
+  /** Zoom by a factor (> 1 = further away). */
+  zoom(factor: number): void {
+    if (this.mode === 'chase') this.distance = THREE.MathUtils.clamp(this.distance * factor, 8, 600);
+    if (this.mode === 'top') this.topHeight = THREE.MathUtils.clamp(this.topHeight * factor, 40, 20000);
+  }
+
+  /** Key code of the next camera mode, for the touch "View" button. */
+  nextModeKey(): string {
+    const modes = Object.entries(MODE_KEYS);
+    const i = modes.findIndex(([, m]) => m === this.mode);
+    return modes[(i + 1) % modes.length][0];
   }
 
   update(dt: number, input: Input, boat: Boat): void {

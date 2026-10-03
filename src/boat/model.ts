@@ -290,7 +290,7 @@ export class BoatModel {
   /**
    * @param boomDeg boom angle (negative = swung to port)
    * @param relWindDeg wind relative to the bow (positive = from starboard)
-   * @param wheelTurn accumulated wheel rotation in radians
+   * @param wheelTurn wheel rotation around its axle in radians
    */
   update(boomDeg: number, relWindDeg: number, wheelTurn: number, sailUp: boolean, dt: number): void {
     this.sailAmount += ((sailUp ? 1 : 0) - this.sailAmount) * (1 - Math.exp(-2.5 * dt));

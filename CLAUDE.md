@@ -31,6 +31,14 @@ project at `/Users/michael/projects/godot/boat3d`.
   (`srgbToLinear` in terrain, `pow(c, 2.2)` in GLSL), otherwise everything renders washed out.
 - `water/waves.ts` (CPU) and the GLSL in `water/water.ts` implement the same Gerstner waves — change both together.
 
+## Controls
+
+- Keyboard: ←/→ or A/D steer (moves the helm, which eases back to centre), S sail, T turbo, 1/2/3 camera,
+  M map range, R back to start, G tuning panel. Mouse drag orbits, wheel zooms.
+- Touch (`core/touchControls.ts`, `ui/touchUi.ts`): one finger drags the helm, two fingers orbit/pinch-zoom,
+  tap the minimap to change range, on-screen Sail/View buttons. `body.touch` switches the touch UI on.
+- Both keyboard and touch drive `boat/helm.ts`; the rudder and the 3D wheel follow the helm position.
+
 ## Roadmap
 
 1. ✅ Setup, sky, light, fog
