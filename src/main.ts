@@ -13,6 +13,7 @@ import { TerrainManager } from './terrain/terrainManager';
 import { Hud } from './ui/hud';
 import { Minimap } from './ui/minimap';
 import { ShoreMap } from './water/shoreMap';
+import { WakeTrail } from './water/wake';
 import { Water } from './water/water';
 import { createWaveField } from './water/waves';
 import { Wind } from './weather/wind';
@@ -65,7 +66,8 @@ scene.add(terrain.group);
 const shoreMap = new ShoreMap((x0, z0, step, res) => terrain.computeShore(x0, z0, step, res));
 const waves = createWaveField(wind.direction);
 waves.shore = (x, z) => shoreMap.sample(x, z);
-const water = new Water(waves, shoreMap);
+const wake = new WakeTrail();
+const water = new Water(waves, shoreMap, wake);
 scene.add(water.mesh);
 
 const boat = new Boat();
@@ -118,7 +120,9 @@ const waveFolder = gui.addFolder('Waves');
 const waveTuning = { scale: 0.6 };
 waves.amplitude = waveTuning.scale * THREE.MathUtils.clamp(wind.speed / 15, 0.15, 1);
 waveFolder.add(waveTuning, 'scale', 0, 2, 0.01).name('wave scale');
+waveFolder.add(water.detail, 'ripples', 0, 3, 0.05);
 const boatFolder = gui.addFolder('Boat');
+boatFolder.add(SAILING, 'speedMultiplier', 1, 8, 0.1).name('speed multiplier');
 boatFolder.add(SAILING, 'maxSpeed', 2, 40, 0.5);
 boatFolder.add(SAILING, 'turnRate', 0.05, 1.5, 0.01);
 boatFolder.add(SAILING, 'maxHeel', 0, 40, 1);
@@ -166,6 +170,9 @@ renderer.setAnimationLoop((timestamp) => {
   const seaState = THREE.MathUtils.clamp(wind.speed / 15, 0.15, 1);
   waves.amplitude += (waveTuning.scale * seaState - waves.amplitude) * (1 - Math.exp(-0.2 * dt));
   boat.update(dt, time, input, wind, waves);
+  const fwd = boat.forward();
+  wake.update(boat.position.x - fwd.x * 4.8, boat.position.z - fwd.z * 4.8, boat.state.speed);
+  water.setBoat(boat.position.x, boat.position.z, boat.state.heading, boat.state.speed);
   water.update(time, boat.position.x, boat.position.z);
   rig.update(dt, input, boat);
   environment.follow(boat.object.position);
@@ -187,4 +194,4 @@ renderer.setAnimationLoop((timestamp) => {
 });
 
 // Dev-only handle for poking at the scene from the browser console.
-if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection, terrain, shoreMap } });
+if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection, terrain, shoreMap, wake } });

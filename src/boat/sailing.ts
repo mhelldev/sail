@@ -26,6 +26,8 @@ const POLAR: ReadonlyArray<readonly [deg: number, factor: number]> = [
 ];
 
 export const SAILING = {
+  /** Game-feel multiplier on sailing speed (1 = realistic). The Godot game was effectively ~7×. */
+  speedMultiplier: 1,
   maxSpeed: 12, // m/s, cap under sail
   turboSpeed: 60, // m/s, exploration mode
   speedResponse: 0.25, // 1/s, how quickly speed follows target
@@ -120,7 +122,8 @@ export function stepSailing(
   let targetSpeed = 0;
   if (input.turbo) targetSpeed = SAILING.turboSpeed;
   else if (input.sailUp)
-    targetSpeed = Math.min(SAILING.maxSpeed, windSpeed * polarFactor(windAngle(heading, windFromDeg)));
+    targetSpeed =
+      Math.min(SAILING.maxSpeed, windSpeed * polarFactor(windAngle(heading, windFromDeg))) * SAILING.speedMultiplier;
   const speedRate = input.turbo ? 1 : SAILING.speedResponse;
   const speed = approach(s.speed, targetSpeed, speedRate, dt);
 

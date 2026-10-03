@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { ShoreMap } from './shoreMap';
+import { WAKE_POINTS, type WakeTrail } from './wake';
 import { SHORE_RANGE, WAVE_COUNT, maxHeight, type WaveField } from './waves';
 
 const SIZE = 32000; // metres across, beyond the farthest terrain
@@ -59,6 +60,75 @@ float shoreDamping(float sd) {
 }
 `;
 
+// Fragment-only detail: small ripples fixed in world space (the visual cue that the boat is
+// moving through the water) and the boat's wake.
+const DETAIL_GLSL = /* glsl */ `
+uniform vec4 uWake[${WAKE_POINTS}]; // x, z, odometer, speed — newest first
+uniform int uWakeCount;
+uniform float uOdometer;
+uniform vec4 uBoat; // x, z, forward x, forward z
+uniform float uBoatSpeed;
+uniform float uRipple;
+
+// Short ripples: (direction angle offset, wavelength, drift speed). Height and slope.
+vec3 ripples(vec2 p, float t) {
+  const vec3 R[6] = vec3[6](
+    vec3(0.0, 4.7, 0.5), vec3(0.9, 3.1, 0.4), vec3(-0.7, 2.3, 0.35),
+    vec3(1.9, 1.7, 0.3), vec3(-1.6, 1.3, 0.25), vec3(2.6, 0.9, 0.2)
+  );
+  float base = atan(uWaves[0].y, uWaves[0].x);
+  vec3 r = vec3(0.0);
+  for (int i = 0; i < 6; i++) {
+    float a = base + R[i].x;
+    vec2 d = vec2(cos(a), sin(a));
+    float k = 6.28318530718 / R[i].y;
+    float ph = k * (dot(d, p) - R[i].z * t);
+    float amp = 0.05 / k; // equal slope per component
+    r.x += amp * sin(ph);
+    r.yz += d * amp * k * cos(ph);
+  }
+  return r;
+}
+
+// Foam left behind the stern: turbulent centre plus the two diverging Kelvin wake arms.
+float wakeFoam(vec2 p) {
+  if (uWakeCount < 2 || length(p - uWake[0].xy) > 260.0) return 0.0;
+  float foam = 0.0;
+  for (int i = 0; i < ${WAKE_POINTS - 1}; i++) {
+    if (i + 1 >= uWakeCount) break;
+    vec4 A = uWake[i];
+    vec4 B = uWake[i + 1];
+    vec2 ab = B.xy - A.xy;
+    float len2 = dot(ab, ab);
+    if (len2 < 1e-4) continue;
+    float tRaw = dot(p - A.xy, ab) / len2;
+    float t = clamp(tRaw, 0.0, 1.0);
+    float lat = length(p - (A.xy + ab * t));
+    float along = uOdometer - mix(A.z, B.z, t);
+    float strength = smoothstep(0.8, 4.0, mix(A.w, B.w, t)) * (1.0 - smoothstep(15.0, 170.0, along));
+    float core = (1.0 - smoothstep(0.0, 1.2 + along * 0.03, lat)) * (1.0 - smoothstep(0.0, 65.0, along)) * 0.85;
+    // Arms only beside a segment (not at its end caps), otherwise they would fill the whole V.
+    float beside = step(-0.02, tRaw) * step(tRaw, 1.02);
+    float armPos = 1.8 + along * 0.34; // tan(19.5°) ≈ 0.35
+    float armWidth = 0.45 + along * 0.012;
+    float arm = beside * exp(-pow((lat - armPos) / armWidth, 2.0)) * 0.4 * (1.0 - smoothstep(10.0, 110.0, along));
+    foam = max(foam, strength * max(core, arm));
+  }
+  return foam;
+}
+
+// Water pushed aside along the hull, strongest at the bow.
+float hullFoam(vec2 p) {
+  vec2 rel = p - uBoat.xy;
+  vec2 fwd = uBoat.zw;
+  float along = dot(rel, fwd);
+  float lat = dot(rel, vec2(-fwd.y, fwd.x));
+  float e = length(vec2(along / 5.3, lat / 1.95));
+  float ring = 1.0 - smoothstep(0.0, 0.3, abs(e - 1.08));
+  return ring * smoothstep(0.5, 5.0, uBoatSpeed) * (0.55 + 0.45 * smoothstep(-2.0, 4.0, along));
+}
+`;
+
 // Mirrors `displace` in waves.ts, plus analytic normals.
 const WAVE_GLSL = /* glsl */ `
 ${SHORE_GLSL}
@@ -105,13 +175,23 @@ export class Water {
     uShore: { value: null as THREE.Texture | null },
     uShoreRect: { value: new THREE.Vector4() },
     uShoreRange: { value: SHORE_RANGE },
+    uWake: { value: [] as THREE.Vector4[] },
+    uWakeCount: { value: 0 },
+    uOdometer: { value: 0 },
+    uBoat: { value: new THREE.Vector4() },
+    uBoatSpeed: { value: 0 },
+    uRipple: { value: 1 },
   };
+  /** Strength of the small world-fixed ripples (debug panel). */
+  readonly detail = { ripples: 1 };
 
   constructor(
     private readonly field: WaveField,
     private readonly shore?: ShoreMap,
+    private readonly wake?: WakeTrail,
   ) {
     this.uniforms.uShore.value = shore?.texture ?? null;
+    this.uniforms.uWake.value = wake?.points ?? Array.from({ length: WAKE_POINTS }, () => new THREE.Vector4());
     const material = new THREE.MeshPhysicalMaterial({
       color: 0x0b3a55,
       roughness: 0.22,
@@ -140,7 +220,7 @@ export class Water {
         // The mesh is never rotated or scaled, so a world offset equals a local offset.
         .replace('#include <begin_vertex>', 'vec3 transformed = position + waveDisp;');
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', `#include <common>\nvarying float vCrest;\nvarying vec2 vWaterXZ;\n${SHORE_GLSL}`)
+        .replace('#include <common>', `#include <common>\nvarying float vCrest;\nvarying vec2 vWaterXZ;\nuniform vec4 uWaves[${WAVE_COUNT}];\n${SHORE_GLSL}\n${DETAIL_GLSL}`)
         .replace(
           '#include <color_fragment>',
           /* glsl */ `
@@ -155,7 +235,20 @@ export class Water {
           float edge = (1.0 - smoothstep(0.0, 7.0, -sd)) * (0.5 + 0.5 * lines);
           float rollers = (1.0 - smoothstep(6.0, 40.0, -sd)) * smoothstep(0.9, 0.99, lines) * 0.45;
           foam = max(foam, max(edge, rollers));
+          // Wake and bow wave, broken up by the ripples so they don't look painted on.
+          vec3 rip = ripples(vWaterXZ, uTime);
+          float churn = 0.7 + 5.0 * rip.x;
+          foam = max(foam, clamp(max(wakeFoam(vWaterXZ), hullFoam(vWaterXZ)) * churn, 0.0, 1.0));
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.85, 0.9, 0.92), foam * 0.8);
+          `,
+        )
+        .replace(
+          '#include <normal_fragment_maps>',
+          /* glsl */ `
+          #include <normal_fragment_maps>
+          // Tilt the normal by the ripple slope; fade out before the ripples get smaller than a pixel.
+          float rippleFade = (1.0 - smoothstep(25.0, 260.0, length(vViewPosition))) * uRipple;
+          normal = normalize(normal + (viewMatrix * vec4(-rip.y, 0.0, -rip.z, 0.0)).xyz * rippleFade);
           `,
         );
     };
@@ -163,6 +256,13 @@ export class Water {
     this.mesh = new THREE.Mesh(createWaterGeometry(), material);
     this.mesh.frustumCulled = false; // vertices move in the shader
     this.mesh.receiveShadow = true;
+  }
+
+  /** Boat pose for the hull foam: position, heading in compass degrees, speed in m/s. */
+  setBoat(x: number, z: number, headingDeg: number, speed: number): void {
+    const h = (headingDeg * Math.PI) / 180;
+    this.uniforms.uBoat.value.set(x, z, Math.sin(h), -Math.cos(h));
+    this.uniforms.uBoatSpeed.value = speed;
   }
 
   update(time: number, followX: number, followZ: number): void {
@@ -177,6 +277,9 @@ export class Water {
     u.uCenter.value.set(followX, followZ);
     u.uFade.value.set(f.fadeStart, f.fadeEnd);
     f.waves.forEach((w, i) => u.uWaves.value[i].set(w.dirX, w.dirZ, w.steepness, w.length));
+    u.uWakeCount.value = this.wake?.count ?? 0;
+    u.uOdometer.value = this.wake?.odometer ?? 0;
+    u.uRipple.value = this.detail.ripples;
     const shore = this.shore;
     if (shore?.valid) u.uShoreRect.value.set(shore.x0, shore.z0, shore.step, shore.res);
     else u.uShoreRect.value.set(0, 0, 1, 0);
