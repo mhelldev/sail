@@ -24,66 +24,102 @@ const keelY = (t: number) => {
 };
 const stationZ = (t: number) => -LENGTH / 2 + LENGTH * t;
 
-const HULL_TOP = new THREE.Color(0xf4f2ec);
-const HULL_STRIPE = new THREE.Color(0x1d3557);
-const HULL_BOTTOM = new THREE.Color(0x8c2f2a);
-
-function hullColor(y: number): THREE.Color {
-  if (y < 0.05) return HULL_BOTTOM;
-  if (y < 0.18) return HULL_STRIPE;
-  return HULL_TOP;
+/** Hull cross-section at t (0 = bow, 1 = stern), from the port deck edge, under the keel, to starboard. */
+function section(t: number): THREE.Vector3[] {
+  const w = halfWidth(t);
+  const top = deckY(t);
+  const bottom = keelY(t);
+  const pts: THREE.Vector3[] = [];
+  for (let k = 0; k <= SECTION_STEPS; k++) {
+    const phi = (Math.PI * k) / SECTION_STEPS;
+    const y = top - (top - bottom) * Math.pow(Math.sin(phi), 0.55);
+    pts.push(new THREE.Vector3(-w * Math.cos(phi), y, stationZ(t)));
+  }
+  return pts;
 }
 
+/**
+ * Watertight hull: one indexed shell (smooth normals) plus a flat transom.
+ * All triangles wind outwards, so the hull renders single-sided.
+ */
 function createHull(): THREE.BufferGeometry {
-  const positions: number[] = [];
-  const colors: number[] = [];
-  const ring = (t: number) => {
-    const w = halfWidth(t);
-    const top = deckY(t);
-    const bottom = keelY(t);
-    const pts: THREE.Vector3[] = [];
-    for (let k = 0; k <= SECTION_STEPS; k++) {
-      const phi = (Math.PI * k) / SECTION_STEPS;
-      const y = top - (top - bottom) * Math.pow(Math.sin(phi), 0.55);
-      pts.push(new THREE.Vector3(-w * Math.cos(phi), y, stationZ(t)));
-    }
-    return pts;
-  };
-  const tri = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3) => {
-    for (const p of [a, b, c]) {
-      positions.push(p.x, p.y, p.z);
-      const col = hullColor((a.y + b.y + c.y) / 3);
-      colors.push(col.r, col.g, col.b);
-    }
-  };
-
-  let prev = ring(0);
-  for (let s = 1; s <= STATIONS; s++) {
-    const cur = ring(s / STATIONS);
+  const cols = SECTION_STEPS + 1;
+  const shell: number[] = [];
+  for (let s = 0; s <= STATIONS; s++) for (const p of section(s / STATIONS)) shell.push(p.x, p.y, p.z);
+  const shellIndex: number[] = [];
+  for (let s = 0; s < STATIONS; s++) {
     for (let k = 0; k < SECTION_STEPS; k++) {
-      tri(prev[k], prev[k + 1], cur[k]);
-      tri(prev[k + 1], cur[k + 1], cur[k]);
+      const a = s * cols + k;
+      shellIndex.push(a, a + 1, a + cols, a + 1, a + cols + 1, a + cols);
     }
-    prev = cur;
   }
-  // Transom: fan from the centre of the last section.
-  const centre = prev.reduce((acc, p) => acc.add(p), new THREE.Vector3()).divideScalar(prev.length);
-  for (let k = 0; k < SECTION_STEPS; k++) tri(centre, prev[k], prev[k + 1]);
+  const shellGeo = new THREE.BufferGeometry();
+  shellGeo.setAttribute('position', new THREE.Float32BufferAttribute(shell, 3));
+  shellGeo.setIndex(shellIndex);
+  shellGeo.computeVertexNormals();
 
+  // Transom: fan over the last section, closed along the deck edge, facing aft.
+  const last = section(1);
+  const centre = last.reduce((acc, p) => acc.add(p), new THREE.Vector3()).divideScalar(last.length);
+  const transom: number[] = [];
+  for (let k = 0; k < SECTION_STEPS; k++) transom.push(...centre.toArray(), ...last[k].toArray(), ...last[k + 1].toArray());
+  transom.push(...centre.toArray(), ...last[SECTION_STEPS].toArray(), ...last[0].toArray());
+  const transomGeo = new THREE.BufferGeometry();
+  transomGeo.setAttribute('position', new THREE.Float32BufferAttribute(transom, 3));
+  transomGeo.setAttribute('normal', new THREE.Float32BufferAttribute(transom.map((_, i) => (i % 3 === 2 ? 1 : 0)), 3));
+
+  return mergeNonIndexed(shellGeo.toNonIndexed(), transomGeo);
+}
+
+function mergeNonIndexed(...geos: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const join = (name: string) => {
+    const arrays = geos.map((g) => g.getAttribute(name).array as Float32Array);
+    const out = new Float32Array(arrays.reduce((n, a) => n + a.length, 0));
+    let o = 0;
+    for (const a of arrays) {
+      out.set(a, o);
+      o += a.length;
+    }
+    return new THREE.BufferAttribute(out, 3);
+  };
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geo.computeVertexNormals();
+  geo.setAttribute('position', join('position'));
+  geo.setAttribute('normal', join('normal'));
   return geo;
 }
 
+/** Hull paint by height: antifouling below the waterline, a boot stripe, white topsides. */
+function createHullMaterial(): THREE.MeshStandardMaterial {
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45 });
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vHullY;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHullY = position.y;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vHullY;')
+      .replace(
+        '#include <color_fragment>',
+        /* glsl */ `
+        #include <color_fragment>
+        float aa = fwidth(vHullY);
+        vec3 paint = vec3(0.55, 0.13, 0.11);
+        paint = mix(paint, vec3(0.06, 0.13, 0.24), smoothstep(0.05 - aa, 0.05 + aa, vHullY));
+        paint = mix(paint, vec3(0.92, 0.91, 0.88), smoothstep(0.2 - aa, 0.2 + aa, vHullY));
+        diffuseColor.rgb *= paint;
+        `,
+      );
+  };
+  return mat;
+}
+
+/** Deck surface sharing the hull's deck edge exactly, so there is no gap between them. */
 function createDeck(): THREE.BufferGeometry {
   const positions: number[] = [];
   for (let s = 0; s < STATIONS; s++) {
     const t0 = s / STATIONS;
     const t1 = (s + 1) / STATIONS;
-    const [w0, w1] = [halfWidth(t0) * 0.98, halfWidth(t1) * 0.98];
-    const [y0, y1] = [deckY(t0) + 0.01, deckY(t1) + 0.01];
+    const [w0, w1] = [halfWidth(t0), halfWidth(t1)];
+    const [y0, y1] = [deckY(t0), deckY(t1)];
     const [z0, z1] = [stationZ(t0), stationZ(t1)];
     positions.push(-w0, y0, z0, w1, y1, z1, w0, y0, z0);
     positions.push(-w0, y0, z0, -w1, y1, z1, w1, y1, z1);
@@ -160,7 +196,6 @@ export class BoatModel {
   constructor() {
     this.root.add(this.tilt);
 
-    const white = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.45 });
     const teak = new THREE.MeshStandardMaterial({ color: 0xa47148, roughness: 0.8 });
     const cabinMat = new THREE.MeshStandardMaterial({ color: 0xe9e6dd, roughness: 0.6 });
     const glass = new THREE.MeshStandardMaterial({ color: 0x1b2a35, roughness: 0.1, metalness: 0.3 });
@@ -168,9 +203,7 @@ export class BoatModel {
     const dark = new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.6 });
     const sailMat = new THREE.MeshStandardMaterial({ color: 0xfbf8ef, roughness: 0.85, side: THREE.DoubleSide });
 
-    const hull = new THREE.Mesh(createHull(), white);
-    hull.material.side = THREE.DoubleSide;
-    this.tilt.add(hull);
+    this.tilt.add(new THREE.Mesh(createHull(), createHullMaterial()));
     this.tilt.add(new THREE.Mesh(createDeck(), teak));
 
     // Keel fin and rudder.
