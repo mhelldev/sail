@@ -101,3 +101,52 @@ canvas {
 .lil-gui.root {
   top: 150px !important;
 }
+
+.hud-nav {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.hud-warn {
+  color: #ffb4a2;
+  opacity: 1;
+  font-weight: 600;
+}
+
+.minimap {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.4), 0 4px 16px rgb(0 0 0 / 0.3);
+  cursor: pointer;
+}
+
+.minimap canvas {
+  width: 180px;
+  height: 180px;
+  display: block;
+}
+
+.minimap-range {
+  position: absolute;
+  bottom: 10px;
+  width: 100%;
+  text-align: center;
+  font-size: 11px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
+  pointer-events: none;
+}
+
+.loading {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #f4f7f9;
+  font-size: 15px;
+}

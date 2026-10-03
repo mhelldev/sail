@@ -4,13 +4,31 @@ import { Boat } from './boat/boat';
 import { SAILING } from './boat/sailing';
 import { CameraRig } from './camera/cameraRig';
 import { Input } from './core/input';
+import { CoastLines } from './geo/coastLines';
+import { Coastline, type CoastData } from './geo/coastline';
+import { LocalProjection } from './geo/projection';
 import { Hud } from './ui/hud';
+import { Minimap } from './ui/minimap';
 import { Water } from './water/water';
 import { createWaveField } from './water/waves';
 import { Wind } from './weather/wind';
 import { Environment } from './world/environment';
 
+// Start where the Godot game started: off Schouwen-Duiveland, Zeeland (NL).
+// The world origin is fixed here; 1 unit = 1 m, +X east, -Z north.
+const START = { lat: 51.7478, lon: 3.90804 };
+const COAST_QUERY_RANGE = 5000;
+
 const app = document.getElementById('app')!;
+const loading = document.createElement('div');
+loading.className = 'loading';
+loading.textContent = 'Loading coastline…';
+app.appendChild(loading);
+
+const projection = new LocalProjection(START.lat, START.lon);
+const coastData = (await fetch('/data/coast.json').then((r) => r.json())) as CoastData;
+const coastline = Coastline.fromData(coastData, projection);
+loading.remove();
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -35,8 +53,12 @@ scene.add(water.mesh);
 const boat = new Boat((wind.direction + 90) % 360);
 scene.add(boat.object);
 
+const coastLines = new CoastLines(coastline);
+scene.add(coastLines.object);
+
 const rig = new CameraRig(camera, renderer.domElement);
 const hud = new Hud(app);
+const minimap = new Minimap(app, coastline);
 
 // Debug / tuning panel (press G to toggle).
 const gui = new GUI({ title: 'Tuning' });
@@ -54,6 +76,8 @@ const boatFolder = gui.addFolder('Boat');
 boatFolder.add(SAILING, 'maxSpeed', 2, 40, 0.5);
 boatFolder.add(SAILING, 'turnRate', 0.05, 1.5, 0.01);
 boatFolder.add(SAILING, 'maxHeel', 0, 40, 1);
+const debugFolder = gui.addFolder('Debug');
+debugFolder.add(coastLines.object, 'visible').name('coastline lines (C)').listen();
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -68,6 +92,8 @@ renderer.setAnimationLoop((timestamp) => {
   const time = timer.getElapsed();
 
   if (input.wasPressed('KeyG')) gui.show((guiVisible = !guiVisible));
+  if (input.wasPressed('KeyC')) coastLines.object.visible = !coastLines.object.visible;
+  if (input.wasPressed('KeyM')) minimap.zoom();
 
   wind.update(time);
   // Sea state follows the wind: calm below ~3 m/s, fully developed around 15 m/s.
@@ -77,11 +103,19 @@ renderer.setAnimationLoop((timestamp) => {
   water.update(time, boat.position.x, boat.position.z);
   rig.update(dt, input, boat);
   environment.follow(boat.object.position);
-  hud.update(boat, wind);
+  coastLines.update(boat.position.x, boat.position.z);
+  minimap.update(dt, boat.position.x, boat.position.z, boat.state.heading);
+  const geo = projection.toGeo(boat.position.x, boat.position.z);
+  hud.update(boat, wind, {
+    lat: geo.lat,
+    lon: geo.lon,
+    coastDistance: coastline.signedDistance(boat.position.x, boat.position.z, COAST_QUERY_RANGE),
+    maxDistance: COAST_QUERY_RANGE,
+  });
 
   renderer.render(scene, camera);
   input.endFrame();
 });
 
 // Dev-only handle for poking at the scene from the browser console.
-if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind } });
+if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection } });

@@ -15,6 +15,7 @@ project at `/Users/michael/projects/godot/boat3d`.
 - `npm run dev` — dev server
 - `npm test` — Vitest unit tests (pure logic: sailing model, waves, input)
 - `npm run typecheck` / `npm run build`
+- `npm run geo` — regenerate `public/data/coast.json` from `boat3d/europe.geo.json` (read-only input)
 
 ## Conventions
 
@@ -22,14 +23,18 @@ project at `/Users/michael/projects/godot/boat3d`.
 - Headings and wind are compass degrees clockwise from north; wind direction is where it blows FROM.
 - Boat model local axes: forward = -Z, starboard = +X. Positive heel/roll lowers the port side.
 - Keep game logic that can be pure (no three.js) in testable modules (`boat/sailing.ts`, `water/waves.ts`).
+- Geo data is stored as lon/lat and projected at load time with `geo/projection.ts` around the fixed
+  start point (equirectangular; fine within ~200 km, revisit with a floating origin for long voyages).
 - `water/waves.ts` (CPU) and the GLSL in `water/water.ts` implement the same Gerstner waves — change both together.
 
 ## Roadmap
 
 1. ✅ Setup, sky, light, fog
 2. ✅ Open sea: Gerstner waves, procedural boat, sailing mechanics, random wind, cameras, HUD
-3. Geo pipeline: preprocess `boat3d/europe.geo.json` into merged land polygons (removing country borders),
-   local metric projection, signed distance to coast
+3. ✅ Geo pipeline: `scripts/preprocess-geo.ts` keeps only coastline edges (shared country-border edges
+   cancel out; the source lists France twice, so duplicate rings are skipped). `geo/coastline.ts` answers
+   land/water (ray crossing parity) and signed distance to coast; `sampleGrid` does a whole chunk at once.
+   Minimap + coastline debug lines (C) + HUD position/coast distance.
 4. Terrain: chunks streamed around the boat, heights = coast mask × ridged/domain-warped noise, built in a
    Web Worker
 5. Land collision + polish
