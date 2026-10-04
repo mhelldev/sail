@@ -3,7 +3,9 @@ import type { HarborData } from '../harbors/harborData';
 
 const SIZE = 180; // CSS pixels
 const RES = 120; // land samples per side
-const RANGES = [5000, 15000, 40000, 120000]; // metres from centre to edge
+const RANGES = [5000, 15000, 40000, 120000, 400000, 2000000]; // metres from centre to edge
+/** Beyond this range harbour and lighthouse dots would only clutter the map. */
+const MARKER_RANGE = 120000;
 const REFRESH = 0.4; // seconds between land redraws
 
 /** North-up minimap centred on the boat. Land comes from the coastline's crossing test. */
@@ -92,12 +94,12 @@ export class Minimap {
     ctx.font = '600 11px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('N', half, 13);
-    this.label.textContent = `${range >= 1000 ? range / 1000 + ' km' : range + ' m'}`;
+    this.label.textContent = range >= 1000 ? `${(range / 1000).toLocaleString('en')} km` : `${range} m`;
   }
 
   /** Lighthouses as small yellow dots, harbours as anchors-ish markers, names when zoomed in. */
   private drawHarbors(x: number, z: number, range: number, scale: number): void {
-    if (!this.harbors) return;
+    if (!this.harbors || range > MARKER_RANGE) return;
     const ctx = this.ctx;
     const half = SIZE / 2;
     const toScreen = (px: number, pz: number) => [half + (px - x) * scale, half + (pz - z) * scale];
