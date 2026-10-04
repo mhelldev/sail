@@ -291,3 +291,21 @@ body.touch .lil-gui.lil-root {
     height: 96px;
   }
 }
+
+.fps {
+  position: fixed;
+  top: calc(6px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgb(8 28 40 / 0.5);
+  color: #9fe2bf;
+  font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.fps-low {
+  color: #ffb4a2;
+}

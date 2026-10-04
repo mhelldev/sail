@@ -31,6 +31,15 @@ project at `/Users/michael/projects/godot/boat3d`.
   (`srgbToLinear` in terrain, `pow(c, 2.2)` in GLSL), otherwise everything renders washed out.
 - `water/waves.ts` (CPU) and the GLSL in `water/water.ts` implement the same Gerstner waves — change both together.
 
+## Performance
+
+- Keep per-pixel water work O(1): the wake is drawn into a top-down texture (`water/wakeMap.ts`) instead of
+  looping over trail segments per pixel — the loop version cost ~2/3 of the frame.
+- `core/performance.ts`: 60 fps cap, pixel ratio ≤ 1.5 on touch devices (≤ 2 elsewhere), adaptive
+  resolution. The FPS readout at the top shows fps, frame time and the current pixel ratio.
+- To measure GPU cost of a change: stop the loop, render N frames each followed by a 1-pixel
+  `gl.readPixels` (forces the GPU to finish) and compare with features toggled.
+
 ## Controls
 
 - Keyboard: ←/→ or A/D steer (moves the helm, which eases back to centre), S sail, T turbo, 1/2/3 camera,

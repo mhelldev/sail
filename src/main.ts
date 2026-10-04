@@ -4,6 +4,7 @@ import { Boat } from './boat/boat';
 import { SAILING } from './boat/sailing';
 import { CameraRig } from './camera/cameraRig';
 import { Input } from './core/input';
+import { PerformanceGovernor } from './core/performance';
 import { TouchControls } from './core/touchControls';
 import { clearSavedBoat, loadBoat, saveBoat } from './core/save';
 import { CoastLines } from './geo/coastLines';
@@ -11,11 +12,13 @@ import { Coastline, type CoastData } from './geo/coastline';
 import { LocalProjection } from './geo/projection';
 import { DEFAULT_TERRAIN } from './terrain/height';
 import { TerrainManager } from './terrain/terrainManager';
+import { FpsCounter } from './ui/fps';
 import { Hud } from './ui/hud';
 import { Minimap } from './ui/minimap';
 import { TouchUi } from './ui/touchUi';
 import { ShoreMap } from './water/shoreMap';
 import { WakeTrail } from './water/wake';
+import { WakeMap } from './water/wakeMap';
 import { Water } from './water/water';
 import { createWaveField } from './water/waves';
 import { Wind } from './weather/wind';
@@ -45,8 +48,13 @@ if (!renderer.capabilities.reversedDepthBuffer) {
   renderer.dispose();
   renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
 }
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
+// Phones: 60 fps cap (many refresh at 120 Hz) and a lower pixel ratio keep them from heating up.
+const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+const governor = new PerformanceGovernor(
+  { fpsCap: 60, maxPixelRatio: Math.min(window.devicePixelRatio, isTouchDevice ? 1.5 : 2), adaptive: true },
+  (ratio) => renderer.setPixelRatio(ratio),
+);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.6;
 renderer.shadowMap.enabled = true;
@@ -69,7 +77,8 @@ const shoreMap = new ShoreMap((x0, z0, step, res) => terrain.computeShore(x0, z0
 const waves = createWaveField(wind.direction);
 waves.shore = (x, z) => shoreMap.sample(x, z);
 const wake = new WakeTrail();
-const water = new Water(waves, shoreMap, wake);
+const wakeMap = new WakeMap();
+const water = new Water(waves, shoreMap, wakeMap);
 scene.add(water.mesh);
 
 const boat = new Boat();
@@ -109,6 +118,7 @@ scene.add(coastLines.object);
 const rig = new CameraRig(camera, renderer.domElement);
 const hud = new Hud(app);
 const minimap = new Minimap(app, coastline);
+const fps = new FpsCounter(app);
 const touch = new TouchControls(renderer.domElement, () => boat.helm.position, rig);
 const touchUi = new TouchUi(app, input, () => rig.nextModeKey());
 
@@ -146,6 +156,11 @@ terrainFolder.add(terrain.material, 'wireframe');
 terrainFolder.add(terrain.stats, 'meshes').listen().disable();
 terrainFolder.add(terrain.stats, 'queued').listen().disable();
 terrainFolder.add(terrain.stats, 'lastBuildMs').name('last build ms').listen().disable();
+const perfFolder = gui.addFolder('Performance');
+perfFolder.add(governor.settings, 'fpsCap', { unlimited: 0, '30 fps': 30, '60 fps': 60 }).name('fps cap');
+perfFolder.add(governor.settings, 'maxPixelRatio', 0.75, 3, 0.25).name('max pixel ratio');
+perfFolder.add(governor.settings, 'adaptive').name('adaptive resolution');
+perfFolder.add(governor, 'pixelRatio').name('pixel ratio now').listen().disable();
 const debugFolder = gui.addFolder('Debug');
 debugFolder.add(coastLines.object, 'visible').name('coastline lines (C)').listen();
 
@@ -157,7 +172,10 @@ window.addEventListener('resize', () => {
 
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((timestamp) => {
+  if (!governor.shouldRender(timestamp)) return;
   timer.update(timestamp);
+  governor.frame(timer.getDelta());
+  fps.frame(timer.getDelta(), governor.pixelRatio);
   const dt = Math.min(timer.getDelta(), 0.1);
   const time = timer.getElapsed();
 
@@ -176,6 +194,7 @@ renderer.setAnimationLoop((timestamp) => {
   boat.update(dt, time, input, wind, waves, touch.steer);
   const fwd = boat.forward();
   wake.update(boat.position.x - fwd.x * 4.8, boat.position.z - fwd.z * 4.8, boat.state.speed);
+  wakeMap.render(renderer, wake, boat.position.x, boat.position.z);
   water.setBoat(boat.position.x, boat.position.z, boat.state.heading, boat.state.speed);
   water.update(time, boat.position.x, boat.position.z);
   rig.update(dt, input, boat);
@@ -199,4 +218,4 @@ renderer.setAnimationLoop((timestamp) => {
 });
 
 // Dev-only handle for poking at the scene from the browser console.
-if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection, terrain, shoreMap, wake } });
+if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection, terrain, shoreMap, wake, wakeMap } });
