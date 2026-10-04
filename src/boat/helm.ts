@@ -12,14 +12,16 @@ export class Helm {
 
   /**
    * @param keys -1 / 0 / 1 from the keyboard
-   * @param touch absolute helm position while a finger holds the wheel, otherwise null
+   * @param grip absolute helm position while a hand (mouse or finger) holds the wheel, otherwise null
+   * @param selfCentering ease back to centre when let go (keyboard steering); a wheel steered by
+   *   hand stays where it was left, like on a real boat
    */
-  update(dt: number, keys: number, touch: number | null): void {
-    if (touch !== null) {
-      this.position = clamp(touch);
+  update(dt: number, keys: number, grip: number | null, selfCentering = true): void {
+    if (grip !== null) {
+      this.position = clamp(grip);
     } else if (keys !== 0) {
       this.position = clamp(this.position + keys * KEY_RATE * dt);
-    } else {
+    } else if (selfCentering) {
       // Let go: the wheel eases back to centre.
       const step = RETURN_RATE * dt;
       this.position = Math.abs(this.position) <= step ? 0 : this.position - Math.sign(this.position) * step;

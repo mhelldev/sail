@@ -7,8 +7,7 @@ project at `/Users/michael/projects/godot/boat3d`.
 
 - `godot/boat3d` (and `godot/sailboat`, an older prototype) are **read-only reference**. Never modify them.
 - Take ideas, not code: re-design for the web stack instead of translating GDScript line by line.
-- Out of scope for now: weather API (wind is random, `src/weather/wind.ts`), harbors, buildings,
-  wikidata images, simulated vessels.
+- Out of scope for now: weather API (wind is random, `src/weather/wind.ts`), wikidata images.
 
 ## Commands
 
@@ -45,14 +44,23 @@ project at `/Users/michael/projects/godot/boat3d`.
 
 ## Controls
 
-- Keyboard: ←/→ or A/D steer (moves the helm, which eases back to centre), S sail, T turbo, 1/2/3 camera,
-  M map range, V sound, N night, R back to start, G tuning panel. Mouse drag orbits, wheel zooms.
-- 4: walk mode (first person; mouse wheel out shows the person from behind). Arrows/WASD walk, Shift run,
-  Space jump (or climb out of the water), click to capture the mouse for looking (Esc releases).
-  4 or 1/2/3 returns to sailing. Desktop only so far.
-- Touch (`core/touchControls.ts`, `ui/touchUi.ts`): one finger drags the helm, two fingers orbit/pinch-zoom,
-  tap the minimap to change range, on-screen Sail/View buttons. `body.touch` switches the touch UI on.
-- Both keyboard and touch drive `boat/helm.ts`; the rudder and the 3D wheel follow the helm position.
+First person only (no chase/deck/top cameras); the player starts behind the wheel. There is no HTML HUD
+any more apart from the crosshair and the key help line: the instruments are a screen on the boat.
+
+- Keyboard: arrows/WASD walk, Shift run, Space jump (or climb out of the water), E sail up/down, T turbo,
+  B back aboard behind the wheel, M chart range, V sound, N night, R back to start, G tuning panel.
+- Mouse: moving it looks around at once (no click needed; a cursor resting at the left/right window edge keeps
+  turning). The first click also requests pointer lock (browsers require a click), Esc releases it.
+  Right button held = zoom (FOV 20°, for reading the instruments).
+- Clicking (or tapping) the companionway door opens/closes it; clicking the chart plotter changes its range.
+  `WalkMode.clickables` (raycast, ≤ 3.8 m) — add more there.
+- Steering: with the wheel under the crosshair (within ~2.6 m) click and drag; the crosshair turns into a ring
+  when it can be grabbed. The mouse moves a virtual hand (2.5× gain) that is raycast onto the wheel plane in the
+  boat's frame; the angle turned around the axle sets the helm. Let go, the wheel stays put (no self-centering).
+- Touch (`ui/touchUi.ts` buttons Jump/Sail/Aboard/Sound, drags handled in `person/walkMode.ts`): a finger on the
+  wheel turns it directly, left half = walking joystick, right half = look, tap door/plotter.
+  `body.touch` switches the touch UI on.
+- `boat/helm.ts` still supports self-centering key steering (used by tests); the game only grips it by hand.
 
 ## Roadmap
 
@@ -110,16 +118,33 @@ project at `/Users/michael/projects/godot/boat3d`.
   vessel/boat navigation lights, harbour lights, quay street lamps, lighthouse lamps. Lighthouse beams brighten.
 - Windows glow from the shared building shader (`uNight` uniform): per-window hash, ~55% lit, warm tones.
 
-## Walk mode (`src/person/`)
+## The yacht (`src/boat/`)
 
-- `personController.ts` is pure: it only asks a `WalkWorld` for surfaces at a point (tops, boat or not) and the
-  water level. Surfaces higher than a step block (walls, hull sides); water below the feet → swimming;
-  Space while swimming climbs onto something within reach in front.
+- `layout.ts` is the single source for the boat's shape (pure): ~12 m hull lines, deckhouse with the cabin below
+  (floor just above the waterline, settees, table), companionway (door + sliding hatch, three steps), lowered cockpit
+  with benches and the wheel, railing with a gate at the stern, instrument panel position. `boatSurfaces(x, z,
+  doorOpen)` returns what can be stood on / bumped into there (with `bottom` for roofs) — the model and the walking
+  physics both use it, so change them together through `layout.ts`.
+- `model.ts` merges static parts per material (`Parts`), so the boat is ~15 draw calls. The cabin has its own
+  slightly emissive materials (no extra light: a point light would cost on every lit fragment in the scene).
+  The water shader discards the sea inside the hull's footprint, otherwise it shows through the cabin floor.
+- `ui/instrumentPanel.ts` draws chart plotter (`ui/minimap.ts`, now an offscreen chart), wind dial, speed/heading
+  and sail trim into one 1024×716 canvas texture, redrawn 5×/s and only while the player is near the boat.
+
+## First person (`src/person/`)
+
+- `personController.ts` is pure: it only asks a `WalkWorld` for surfaces at a point (tops, optional `bottom`,
+  boat or not) and the water level. Surfaces higher than a step block (walls, hull sides, railing) unless their
+  bottom is above the head (roofs); jumping bumps the head on them. The body has a 0.25 m radius so the camera
+  (near plane 0.1) stays off walls. Jump ~1.1 m: enough for the railing and the cabin roof.
+  Water below the feet → swimming; Space while swimming climbs onto something within reach in front.
 - `walkMode.ts` builds the world: terrain height straight from the rendered chunk triangles
   (`TerrainManager.heightAt`), village walk boxes (`HarborRenderer.surfacesAt`: pier, pontoons, breakwater
-  crest, buildings), the boat's deck/cabin roof via its matrix (`deckHeightAt` in `boat/model.ts`).
+  crest, buildings), the boat via its matrix (`boatSurfaces` in `boat/layout.ts`).
 - The boat is a moving platform: while standing on it (or airborne after leaving it) the person is carried
-  with the boat's matrix delta, so jumps on deck land on deck. The boat sails on with the helm centred.
+  with the boat's matrix delta, so jumps on deck land on deck. The boat sails on with the helm where it was left.
+- Water, terrain, shore map, harbours and traffic are centred on the player (`walk.position`), not the boat,
+  so walking ashore or swimming away keeps the world built around you. Minimap and HUD still show the boat.
 
 ## Ideas for later
 

@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import type { Input } from '../core/input';
 import { heightAt, type WaveField } from '../water/waves';
 import type { Wind } from '../weather/wind';
 import { depenetrate, findOpenWater, resolveMotion, type HullShape, type SignedDistanceFn } from './collision';
 import { Helm } from './helm';
+import { HALF_BEAM, LENGTH } from './layout';
 import { BoatModel, PROBES } from './model';
 import { createSailingState, relativeWind, stepSailing, type SailingState } from './sailing';
 
-const HULL: HullShape = { halfLength: 5, halfBeam: 1.6, clearance: 1.5 };
+const HULL: HullShape = { halfLength: LENGTH / 2, halfBeam: HALF_BEAM - 0.15, clearance: 1.5 };
 
 export class Boat {
   readonly model = new BoatModel();
@@ -41,20 +41,11 @@ export class Boat {
   }
 
   /**
-   * @param touchSteer helm position held by a finger (touch screens), or null
+   * @param grip helm position while the wheel is held by hand (mouse or finger), else null. Let
+   *   go, the wheel stays where it was left, like on a real boat.
    */
-  /**
-   * @param controls false while the player walks around: the keys belong to the person then,
-   *   and the boat sails on with the helm centred
-   */
-  update(dt: number, time: number, input: Input, wind: Wind, waves: WaveField, touchSteer: number | null = null, controls = true): void {
-    if (controls && input.wasPressed('KeyS')) this.sailUp = !this.sailUp;
-    if (controls && input.wasPressed('KeyT')) this.turbo = !this.turbo;
-
-    let keys = 0;
-    if (controls && input.isDown('ArrowLeft', 'KeyA')) keys -= 1;
-    if (controls && input.isDown('ArrowRight', 'KeyD')) keys += 1;
-    this.helm.update(dt, keys, controls ? touchSteer : null);
+  update(dt: number, time: number, wind: Wind, waves: WaveField, grip: number | null = null): void {
+    this.helm.update(dt, 0, grip, false);
 
     this.state = stepSailing(
       this.state,

@@ -27,4 +27,11 @@ describe('Helm', () => {
     helm.update(0.016, -1, 3); // touch wins over keys
     expect(helm.position).toBe(1);
   });
+
+  it('stays where it was left when steered by hand', () => {
+    const helm = new Helm();
+    helm.update(0.1, 0, 0.5, false);
+    for (let i = 0; i < 20; i++) helm.update(0.1, 0, null, false);
+    expect(helm.position).toBe(0.5);
+  });
 });

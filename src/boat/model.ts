@@ -1,29 +1,18 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { lightPointsMaterial, NIGHT } from '../world/night';
+import {
+  BENCH, CABIN, COCKPIT, DOOR, HALF_BEAM, HELM, LENGTH, MAST_TOP, MAST_Z, PANEL, RAIL, SETTEE, STAIRS, TABLE,
+  deckY, halfWidth, keelY, stationT, stationZ,
+} from './layout';
 
-// Procedural sailboat, ~10 m long. Local axes: forward = -Z, starboard = +X, up = +Y.
-// The waterline is at y = 0.
+// Procedural ~12 m cruising yacht (layout in `layout.ts`). Local axes: forward = -Z,
+// starboard = +X, up = +Y. The waterline is at y = 0.
 
-const LENGTH = 10;
-const HALF_BEAM = 1.7;
-const STATIONS = 28;
+const STATIONS = 40;
 const SECTION_STEPS = 12;
-const MAST_Z = -1.2;
-const MAST_TOP = 12.2;
-const BOOM_Y = 3.1;
-const BOOM_LENGTH = 4.4;
-
-const halfWidth = (t: number) =>
-  t < 0.55
-    ? HALF_BEAM * Math.pow(Math.sin(((t / 0.55) * Math.PI) / 2), 0.75)
-    : HALF_BEAM * (1 - 0.25 * ((t - 0.55) / 0.45) ** 2);
-const deckY = (t: number) => 1.0 + 0.3 * (1 - t) ** 2;
-const keelY = (t: number) => {
-  if (t < 0.3) return THREE.MathUtils.lerp(deckY(0) * 0.4, -0.7, THREE.MathUtils.smoothstep(t, 0, 0.3));
-  if (t > 0.75) return THREE.MathUtils.lerp(-0.7, -0.3, (t - 0.75) / 0.25);
-  return -0.7;
-};
-const stationZ = (t: number) => -LENGTH / 2 + LENGTH * t;
+const BOOM_Y = 2.9;
+const BOOM_LENGTH = 5.2;
 
 /** Hull cross-section at t (0 = bow, 1 = stern), from the port deck edge, under the keel, to starboard. */
 function section(t: number): THREE.Vector3[] {
@@ -113,22 +102,85 @@ function createHullMaterial(): THREE.MeshStandardMaterial {
   return mat;
 }
 
-/** Deck surface sharing the hull's deck edge exactly, so there is no gap between them. */
+/** Half width of the opening in the deck (deckhouse, cockpit) at z, 0 where the deck is closed. */
+function deckOpening(z: number): number {
+  if (z >= CABIN.front && z < CABIN.back) return CABIN.halfWidth;
+  if (z >= COCKPIT.front && z < COCKPIT.back) return COCKPIT.halfWidth;
+  return 0;
+}
+
+/**
+ * Flat deck out to the hull's deck edge, open where the deckhouse and the cockpit are. Slices
+ * follow the hull stations plus the openings' ends.
+ */
 function createDeck(): THREE.BufferGeometry {
+  const zs = new Set<number>();
+  for (let s = 0; s <= STATIONS; s++) zs.add(stationZ(s / STATIONS));
+  for (const z of [CABIN.front, CABIN.back, COCKPIT.back]) zs.add(z);
+  const sorted = [...zs].sort((a, b) => a - b);
   const positions: number[] = [];
-  for (let s = 0; s < STATIONS; s++) {
-    const t0 = s / STATIONS;
-    const t1 = (s + 1) / STATIONS;
+  const quad = (xa0: number, xb0: number, y0: number, z0: number, xa1: number, xb1: number, y1: number, z1: number) => {
+    // xa < xb; winding up-facing.
+    positions.push(xa0, y0, z0, xb1, y1, z1, xb0, y0, z0);
+    positions.push(xa0, y0, z0, xa1, y1, z1, xb1, y1, z1);
+  };
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const [z0, z1] = [sorted[i], sorted[i + 1]];
+    const [t0, t1] = [stationT(z0), stationT(z1)];
     const [w0, w1] = [halfWidth(t0), halfWidth(t1)];
     const [y0, y1] = [deckY(t0), deckY(t1)];
-    const [z0, z1] = [stationZ(t0), stationZ(t1)];
-    positions.push(-w0, y0, z0, w1, y1, z1, w0, y0, z0);
-    positions.push(-w0, y0, z0, -w1, y1, z1, w1, y1, z1);
+    const a = deckOpening((z0 + z1) / 2);
+    if (a === 0) {
+      quad(-w0, w0, y0, z0, -w1, w1, y1, z1);
+    } else {
+      quad(-w0, -a, y0, z0, -w1, -a, y1, z1);
+      quad(a, w0, y0, z0, a, w1, y1, z1);
+    }
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geo.computeVertexNormals();
   return geo;
+}
+
+/** Collects static parts per material and merges them into one mesh each (few draw calls). */
+class Parts {
+  private readonly geos = new Map<THREE.Material, THREE.BufferGeometry[]>();
+
+  /** Axis-aligned box from (x0, y0, z0) to (x1, y1, z1). */
+  box(mat: THREE.Material, x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): void {
+    const g = new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0).translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    this.add(mat, g);
+  }
+
+  /** Box mirrored to both sides (x0, x1 on the starboard side). */
+  pair(mat: THREE.Material, x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): void {
+    this.box(mat, x0, x1, y0, y1, z0, z1);
+    this.box(mat, -x1, -x0, y0, y1, z0, z1);
+  }
+
+  /** Round bar from a to b. */
+  rod(mat: THREE.Material, a: THREE.Vector3, b: THREE.Vector3, r: number): void {
+    const dir = b.clone().sub(a);
+    const g = new THREE.CylinderGeometry(r, r, dir.length(), 6, 1, true);
+    g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize()));
+    g.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+    this.add(mat, g.toNonIndexed());
+  }
+
+  add(mat: THREE.Material, g: THREE.BufferGeometry): void {
+    const list = this.geos.get(mat) ?? [];
+    // mergeGeometries needs all indexed or all not; keep everything non-indexed with normals + uvs.
+    list.push(g.index ? g.toNonIndexed() : g);
+    this.geos.set(mat, list);
+  }
+
+  build(parent: THREE.Object3D): void {
+    for (const [mat, list] of this.geos) {
+      for (const g of list) for (const name of Object.keys(g.attributes)) if (name !== 'position' && name !== 'normal') g.deleteAttribute(name);
+      parent.add(new THREE.Mesh(mergeGeometries(list), mat));
+    }
+  }
 }
 
 /**
@@ -185,7 +237,16 @@ export class BoatModel {
   /** Pitch, roll and heel. */
   readonly tilt = new THREE.Group();
 
-  private readonly wheel = new THREE.Group();
+  /** the steering wheel (grabbed by hand in first person) */
+  readonly wheel = new THREE.Group();
+  /** companionway door (click to open/close) */
+  readonly door = new THREE.Group();
+  /** the instruments' screen on the deckhouse's aft wall; its material comes from the instruments */
+  readonly panel: THREE.Mesh;
+  /** companionway open (target; the door and hatch move there over ~0.6 s) */
+  doorOpen = false;
+  private doorAmount = 0;
+  private readonly hatch: THREE.Mesh;
   private readonly boom = new THREE.Group();
   private readonly mainsail: THREE.Mesh;
   private readonly jibPivot = new THREE.Group();
@@ -194,49 +255,84 @@ export class BoatModel {
   private readonly windex = new THREE.Group();
   private sailAmount = 1;
   private readonly glass: THREE.MeshStandardMaterial;
+  private readonly interior: THREE.MeshStandardMaterial[];
+  private readonly lamp: THREE.MeshBasicMaterial;
   private readonly navLights: THREE.Points;
   private bellySide = 1;
 
   constructor() {
     this.root.add(this.tilt);
 
-    const teak = new THREE.MeshStandardMaterial({ color: 0xa47148, roughness: 0.8 });
-    const cabinMat = new THREE.MeshStandardMaterial({ color: 0xe9e6dd, roughness: 0.6 });
-    const glass = new THREE.MeshStandardMaterial({ color: 0x1b2a35, roughness: 0.1, metalness: 0.3, emissive: 0xffb860, emissiveIntensity: 0 });
+    const std = (color: number, roughness: number, extra: THREE.MeshStandardMaterialParameters = {}) =>
+      new THREE.MeshStandardMaterial({ color, roughness, ...extra });
+    const teak = std(0xa47148, 0.8);
+    const gelcoat = std(0xe9e6dd, 0.55);
+    const glass = std(0x1b2a35, 0.1, { metalness: 0.3, emissive: 0xffb860, emissiveIntensity: 0 });
     this.glass = glass;
-    const metal = new THREE.MeshStandardMaterial({ color: 0xb8bec4, roughness: 0.35, metalness: 0.7 });
-    const dark = new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.6 });
-    const sailMat = new THREE.MeshStandardMaterial({ color: 0xfbf8ef, roughness: 0.85, side: THREE.DoubleSide });
+    const metal = std(0xb8bec4, 0.35, { metalness: 0.7 });
+    const dark = std(0x2b2b2b, 0.6);
+    const sailMat = std(0xfbf8ef, 0.85, { side: THREE.DoubleSide });
+    // Below deck the sun hardly reaches: the cabin's materials glow a little, as if a lamp were on.
+    const lining = std(0xe8dccb, 0.8, { emissive: 0x2e261c });
+    const wood = std(0x9a6a43, 0.6, { emissive: 0x1c1209 });
+    const cushion = std(0x2f4f7a, 0.9, { emissive: 0x0a121e });
+    this.interior = [lining, wood, cushion];
+    this.lamp = new THREE.MeshBasicMaterial({ color: 0xfff1d0 });
 
     this.tilt.add(new THREE.Mesh(createHull(), createHullMaterial()));
     this.tilt.add(new THREE.Mesh(createDeck(), teak));
 
-    // Keel fin and rudder.
-    const keel = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.3, 1.4), dark);
-    keel.position.set(0, -1.2, -0.4);
-    const rudder = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.9, 0.5), dark);
-    rudder.position.set(0, -0.6, 4.4);
-    this.tilt.add(keel, rudder);
+    const parts = new Parts();
+    const deckAt = (z: number) => deckY(stationT(z));
 
-    // Cabin with windows.
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.6, 2.9), cabinMat);
-    cabin.position.set(0, 1.35, -0.6);
-    this.tilt.add(cabin);
-    for (const side of [-1, 1]) {
-      const win = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.18, 1.6), glass);
-      win.position.set(side * 1.005, 1.42, -0.6);
-      this.tilt.add(win);
+    // Keel fin and rudder.
+    parts.box(dark, -0.1, 0.1, -2.1, -0.6, -1.4, 0.2);
+    parts.box(dark, -0.05, 0.05, -1.2, -0.2, 5.0, 5.6);
+
+    // Deckhouse: gelcoat outside, a lining inside, so the cabin can have its own (lit) look.
+    const C = CABIN;
+    const T = 0.05; // wall thickness
+    const L = 0.015; // lining
+    const front = deckAt(C.front);
+    parts.pair(gelcoat, C.halfWidth, C.halfWidth + T, deckAt(C.back) - 0.05, C.roofTop, C.front - T, C.back + T); // sides
+    parts.box(gelcoat, -C.halfWidth - T, C.halfWidth + T, front - 0.05, C.roofTop, C.front - T, C.front); // front
+    parts.pair(gelcoat, DOOR.halfWidth, C.halfWidth + T, COCKPIT.floor, C.roofTop, C.back, C.back + T); // aft, beside the door
+    parts.box(gelcoat, -C.halfWidth - T, C.halfWidth + T, C.roofTop - 0.06, C.roofTop, C.front - T, DOOR.hatchFront); // roof
+    parts.pair(gelcoat, DOOR.halfWidth, C.halfWidth + T, C.roofTop - 0.06, C.roofTop, DOOR.hatchFront, C.back + T);
+    parts.pair(lining, C.halfWidth - L, C.halfWidth, C.floor, C.roofBottom, C.front, C.back);
+    parts.box(lining, -C.halfWidth, C.halfWidth, C.floor, C.roofBottom, C.front, C.front + L);
+    parts.pair(lining, DOOR.halfWidth, C.halfWidth, C.floor, C.roofBottom, C.back - L, C.back);
+    parts.box(lining, -C.halfWidth, C.halfWidth, C.roofBottom, C.roofTop - 0.06, C.front, DOOR.hatchFront);
+    parts.pair(lining, DOOR.halfWidth, C.halfWidth, C.roofBottom, C.roofTop - 0.06, DOOR.hatchFront, C.back);
+    // Windows, seen from outside and from inside.
+    for (const [x0, x1] of [[C.halfWidth + T, C.halfWidth + T + 0.01], [C.halfWidth - L - 0.01, C.halfWidth - L]]) {
+      parts.pair(glass, x0, x1, 1.68, 1.86, -2.4, -0.2);
     }
 
-    // Cockpit steering pedestal and wheel (faces aft, spins around the Z axis).
-    const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 0.85), metal);
-    pedestal.position.set(0, 1.42, 3.4);
-    this.tilt.add(pedestal);
-    this.wheel.position.set(0, 1.9, 3.5);
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.035, 8, 32), metal);
-    this.wheel.add(rim);
+    // Cabin: floor, three steps down from the door, settees with backrests, a table, a lamp.
+    parts.box(wood, -C.halfWidth, C.halfWidth, C.floor - 0.05, C.floor, C.front, C.back);
+    for (const s of STAIRS) parts.box(wood, -DOOR.halfWidth, DOOR.halfWidth, C.floor, s.top, s.z0, s.z1);
+    parts.box(wood, -DOOR.halfWidth, DOOR.halfWidth, C.floor, COCKPIT.floor, C.back, C.back + T); // riser under the threshold
+    parts.pair(wood, SETTEE.inner, SETTEE.outer, C.floor, SETTEE.top - 0.08, SETTEE.z0, SETTEE.z1);
+    parts.pair(cushion, SETTEE.inner, SETTEE.outer - L, SETTEE.top - 0.08, SETTEE.top, SETTEE.z0, SETTEE.z1);
+    parts.pair(cushion, SETTEE.outer - L - 0.1, SETTEE.outer - L, SETTEE.top, SETTEE.top + 0.42, SETTEE.z0, SETTEE.z1);
+    parts.box(wood, -TABLE.halfWidth, TABLE.halfWidth, TABLE.top - 0.05, TABLE.top, TABLE.z0, TABLE.z1);
+    parts.box(wood, -0.05, 0.05, C.floor, TABLE.top - 0.05, (TABLE.z0 + TABLE.z1) / 2 - 0.05, (TABLE.z0 + TABLE.z1) / 2 + 0.05);
+    parts.box(this.lamp, -0.12, 0.12, C.roofBottom - 0.04, C.roofBottom, -1.65, -1.55);
+
+    // Cockpit: lowered floor, side benches, coamings, and the wheel on its pedestal.
+    const P = COCKPIT;
+    parts.box(teak, -P.halfWidth, P.halfWidth, P.floor - 0.05, P.floor, P.front, P.back);
+    parts.pair(gelcoat, P.halfWidth, P.halfWidth + T, P.floor, deckAt(P.front) + 0.08, P.front, P.back + T);
+    parts.box(gelcoat, -P.halfWidth, P.halfWidth, P.floor, deckAt(P.back) + 0.08, P.back, P.back + T);
+    parts.pair(teak, BENCH.inner, BENCH.outer, P.floor, BENCH.top, BENCH.z0, BENCH.z1);
+    parts.box(metal, -0.07, 0.07, P.floor, HELM.y - 0.05, HELM.z - 0.2, HELM.z - 0.06);
+    parts.box(dark, -0.1, 0.1, HELM.y - 0.05, HELM.y + 0.07, HELM.z - 0.24, HELM.z - 0.06); // compass housing
+
+    this.wheel.position.set(0, HELM.y, HELM.z);
+    this.wheel.add(new THREE.Mesh(new THREE.TorusGeometry(HELM.radius, 0.035, 8, 32), metal));
     for (let i = 0; i < 6; i++) {
-      const spoke = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1.0), metal);
+      const spoke = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, HELM.radius * 2), metal);
       spoke.rotation.z = (i * Math.PI) / 6;
       this.wheel.add(spoke);
     }
@@ -245,11 +341,53 @@ export class BoatModel {
     this.wheel.add(hub);
     this.tilt.add(this.wheel);
 
-    // Mast.
-    const mastHeight = MAST_TOP - 1.65;
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, mastHeight), metal);
-    mast.position.set(0, 1.65 + mastHeight / 2, MAST_Z);
-    this.tilt.add(mast);
+    // Companionway door, hinged on its port side; it swings out and folds back against the wall.
+    this.door.position.set(-DOOR.halfWidth, P.floor, C.back + T / 2);
+    const leaf = new THREE.Mesh(new THREE.BoxGeometry(DOOR.halfWidth * 2, DOOR.height - 0.02, 0.04).translate(DOOR.halfWidth, DOOR.height / 2, 0), teak);
+    const porthole = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.24, 0.05).translate(DOOR.halfWidth, DOOR.height * 0.68, 0), glass);
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.16, 0.08).translate(DOOR.halfWidth * 2 - 0.1, DOOR.height * 0.45, 0), metal);
+    this.door.add(leaf, porthole, handle);
+    this.tilt.add(this.door);
+    // Sliding hatch over the steps.
+    this.hatch = new THREE.Mesh(
+      new THREE.BoxGeometry(DOOR.halfWidth * 2 + 0.06, 0.05, C.back + T - DOOR.hatchFront).translate(0, C.roofTop + 0.005, (DOOR.hatchFront + C.back + T) / 2),
+      gelcoat,
+    );
+    this.tilt.add(this.hatch);
+
+    // Instruments on the aft wall, starboard of the door: a dark bezel and the screen in front.
+    parts.box(dark, PANEL.x - PANEL.width / 2 - 0.03, PANEL.x + PANEL.width / 2 + 0.03, PANEL.y - PANEL.height / 2 - 0.03, PANEL.y + PANEL.height / 2 + 0.03, C.back + T, PANEL.z - 0.002);
+    this.panel = new THREE.Mesh(new THREE.PlaneGeometry(PANEL.width, PANEL.height), new THREE.MeshBasicMaterial({ color: 0x0b1d2a }));
+    this.panel.position.set(PANEL.x, PANEL.y, PANEL.z);
+    this.tilt.add(this.panel);
+
+    // Railing: stanchions along the deck edge, two wires, a pulpit at the bow, a gate at the stern.
+    const railPoint = (t: number, side: number, h: number) =>
+      new THREE.Vector3(side * (halfWidth(t) - RAIL.inset), deckY(t) + h, stationZ(t));
+    const ts = [0.05, 0.14, 0.25, 0.37, 0.49, 0.61, 0.73, 0.85, 0.985];
+    const sternZ = LENGTH / 2 - RAIL.inset;
+    const sternY = deckY(1);
+    for (const side of [-1, 1]) {
+      for (const t of ts) parts.rod(metal, railPoint(t, side, 0), railPoint(t, side, RAIL.height), 0.018);
+      const gate = new THREE.Vector3(side * RAIL.gateHalfWidth, sternY, sternZ);
+      parts.rod(metal, gate, gate.clone().setY(sternY + RAIL.height), 0.018);
+      for (const h of [RAIL.height, RAIL.height / 2]) {
+        const pts = [new THREE.Vector3(0, deckY(0.015) + h, stationZ(0.015)), ...ts.map((t) => railPoint(t, side, h))];
+        pts.push(new THREE.Vector3(side * RAIL.gateHalfWidth, sternY + h, sternZ));
+        for (let i = 0; i < pts.length - 1; i++) parts.rod(metal, pts[i], pts[i + 1], h === RAIL.height ? 0.016 : 0.008);
+      }
+    }
+    // Boarding ladder under the gate.
+    for (const x of [-0.18, 0.18]) parts.rod(metal, new THREE.Vector3(x, sternY, sternZ + 0.05), new THREE.Vector3(x, -0.7, sternZ + 0.25), 0.015);
+    for (const y of [0.85, 0.4, -0.05, -0.5]) {
+      const z = sternZ + 0.05 + ((sternY - y) / (sternY + 0.7)) * 0.2;
+      parts.rod(metal, new THREE.Vector3(-0.18, y, z), new THREE.Vector3(0.18, y, z), 0.015);
+    }
+
+    // Mast (on the foredeck, in front of the deckhouse).
+    const mastBase = deckAt(MAST_Z);
+    parts.rod(metal, new THREE.Vector3(0, mastBase, MAST_Z), new THREE.Vector3(0, MAST_TOP, MAST_Z), 0.08);
+    parts.build(this.tilt);
 
     // Boom + mainsail, pivoting around the mast.
     this.boom.position.set(0, BOOM_Y, MAST_Z);
@@ -289,14 +427,14 @@ export class BoatModel {
     this.tilt.add(this.windex);
 
     // Navigation lights: masthead white, port (-X) red, starboard (+X) green, near the bow.
-    const bowZ = -LENGTH / 2 + 1.4;
-    const bowY = deckY(0.14) + 0.35;
-    const side = halfWidth(0.14) * 0.95;
+    const bowT = 0.12;
+    const bowY = deckY(bowT) + 0.35;
+    const side = halfWidth(bowT) * 0.95;
     const lights: Array<[number, number, number, number]> = [
       [0, MAST_TOP + 0.35, MAST_Z, 0xfff4dc],
-      [-side, bowY, bowZ, 0xff2a1a],
-      [side, bowY, bowZ, 0x18ff5a],
-      [0, deckY(1) + 0.6, LENGTH / 2 - 0.2, 0xfff4dc], // stern light
+      [-side, bowY, stationZ(bowT), 0xff2a1a],
+      [side, bowY, stationZ(bowT), 0x18ff5a],
+      [0, deckY(1) + 0.75, LENGTH / 2 - 0.1, 0xfff4dc], // stern light
     ];
     const geo = new THREE.BufferGeometry();
     const c = new THREE.Color();
@@ -307,6 +445,13 @@ export class BoatModel {
     this.tilt.add(this.navLights);
 
     shadowed(this.root);
+    // The screen glows by itself and must not get shadow speckles.
+    this.panel.castShadow = this.panel.receiveShadow = false;
+  }
+
+  /** Door and hatch fully open: the companionway can be walked through. */
+  get companionwayOpen(): boolean {
+    return this.doorOpen && this.doorAmount > 0.8;
   }
 
   /**
@@ -334,30 +479,24 @@ export class BoatModel {
     this.windex.rotation.y = -THREE.MathUtils.degToRad(relWindDeg);
     this.wheel.rotation.z = wheelTurn;
 
-    // At night: navigation lights on, warm light behind the cabin windows.
+    // Companionway: the door swings out to port and folds flat against the wall, the hatch slides forward.
+    this.doorAmount = THREE.MathUtils.clamp(this.doorAmount + (this.doorOpen ? dt : -dt) / 0.6, 0, 1);
+    const k = THREE.MathUtils.smoothstep(this.doorAmount, 0, 1);
+    this.door.rotation.y = -k * Math.PI * 0.97;
+    this.hatch.position.z = -k * (CABIN.back - DOOR.hatchFront);
+
+    // At night: navigation lights on, warm light behind the windows, the cabin lamp brighter.
     const night = NIGHT.value;
     (this.navLights.material as THREE.PointsMaterial).opacity = night;
     this.navLights.visible = night > 0.01;
     this.glass.emissiveIntensity = night * 1.4;
+    for (const m of this.interior) m.emissiveIntensity = 1 + night * 0.6;
   }
 }
 
 /** Points used to sample the water surface (bow, stern, port, starboard). */
 export const PROBES = {
-  bow: -LENGTH / 2 + 1,
-  stern: LENGTH / 2 - 1,
+  bow: -LENGTH / 2 + 1.2,
+  stern: LENGTH / 2 - 1.2,
   beam: HALF_BEAM,
 };
-
-/**
- * What a person can stand on at a point of the boat, in the boat's own frame (forward = -Z):
- * the deck (following its sheer), or the cabin roof. Undefined outside the hull.
- */
-export function deckHeightAt(x: number, z: number): number | undefined {
-  const t = (z + LENGTH / 2) / LENGTH;
-  if (t < 0 || t > 1) return undefined;
-  if (Math.abs(x) > halfWidth(t) - 0.05) return undefined;
-  // Cabin roof: 2.0 × 2.9 m box centred at z = -0.6, top at 1.65.
-  if (Math.abs(x) <= 1.0 && z >= -2.05 && z <= 0.85) return 1.65;
-  return deckY(t);
-}

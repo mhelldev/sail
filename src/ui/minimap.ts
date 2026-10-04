@@ -2,45 +2,46 @@ import type { Coastline } from '../geo/coastline';
 import type { HarborData } from '../harbors/harborData';
 import type { Vessel } from '../traffic/vessel';
 
-const SIZE = 180; // CSS pixels
-const RES = 120; // land samples per side
+const SIZE = 180; // drawing units (scaled to the canvas)
+const RES = 140; // land samples per side
 const RANGES = [5000, 15000, 40000, 120000, 400000, 2000000]; // metres from centre to edge
 /** Beyond this range harbour and lighthouse dots would only clutter the map. */
 const MARKER_RANGE = 120000;
 const REFRESH = 0.4; // seconds between land redraws
 
-/** North-up minimap centred on the boat. Land comes from the coastline's crossing test. */
+/**
+ * North-up chart centred on the boat, drawn into an offscreen canvas (shown on the chart plotter).
+ * Land comes from the coastline's crossing test.
+ */
 export class Minimap {
-  private readonly canvas = document.createElement('canvas');
+  readonly canvas = document.createElement('canvas');
   private readonly ctx: CanvasRenderingContext2D;
   private readonly land = document.createElement('canvas');
   private readonly landCtx: CanvasRenderingContext2D;
   private readonly image: ImageData;
-  private readonly label = document.createElement('div');
   private rangeIndex = 1;
   private sinceRefresh = Infinity;
   private landCenter = { x: 0, z: 0 };
 
+  /** @param pixels canvas size (square) */
   constructor(
-    parent: HTMLElement,
     private readonly coast: Coastline,
     private readonly harbors?: HarborData,
     private readonly vessels?: () => Vessel[],
+    pixels = 512,
   ) {
-    const wrap = document.createElement('div');
-    wrap.className = 'minimap';
-    const dpr = Math.min(window.devicePixelRatio, 2);
-    this.canvas.width = this.canvas.height = SIZE * dpr;
+    this.canvas.width = this.canvas.height = pixels;
     this.ctx = this.canvas.getContext('2d')!;
-    this.ctx.scale(dpr, dpr);
+    this.ctx.scale(pixels / SIZE, pixels / SIZE);
     this.land.width = this.land.height = RES;
     this.landCtx = this.land.getContext('2d')!;
     this.image = this.landCtx.createImageData(RES, RES);
-    this.label.className = 'minimap-range';
-    wrap.append(this.canvas, this.label);
-    parent.appendChild(wrap);
-    wrap.title = 'Click to change the range';
-    wrap.addEventListener('click', () => this.zoom());
+  }
+
+  /** Current range from the centre to the edge, e.g. "15 km". */
+  get rangeLabel(): string {
+    const range = RANGES[this.rangeIndex];
+    return range >= 1000 ? `${(range / 1000).toLocaleString('en')} km` : `${range} m`;
   }
 
   zoom(): void {
@@ -62,10 +63,10 @@ export class Minimap {
     ctx.clearRect(0, 0, SIZE, SIZE);
     ctx.save();
     ctx.beginPath();
-    ctx.arc(half, half, half - 1, 0, Math.PI * 2);
+    ctx.rect(0, 0, SIZE, SIZE);
     ctx.clip();
     // The land image was sampled around landCenter; shift it so the boat stays centred.
-    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = true;
     ctx.drawImage(
       this.land,
       half + (this.landCenter.x - x) * scale - half,
@@ -97,7 +98,6 @@ export class Minimap {
     ctx.font = '600 11px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('N', half, 13);
-    this.label.textContent = range >= 1000 ? `${(range / 1000).toLocaleString('en')} km` : `${range} m`;
   }
 
   /** Other vessels as small arrows in the direction they're heading. */
@@ -109,7 +109,7 @@ export class Minimap {
     for (const v of this.vessels()) {
       const sx = half + (v.x - x) * scale;
       const sy = half + (v.z - z) * scale;
-      if (Math.hypot(sx - half, sy - half) > half) continue;
+      if (sx < 0 || sy < 0 || sx > SIZE || sy > SIZE) continue;
       const size = v.kind === 'cargo' || v.kind === 'ferry' ? 4 : 2.6;
       ctx.save();
       ctx.translate(sx, sy);

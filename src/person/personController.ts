@@ -1,11 +1,13 @@
-// A person walking around in third person: on the boat's deck, on piers and land, or
-// swimming. Pure: the world is only asked "what can I stand on here?" and "where is the water?".
+// A person walking around: on the boat (deck, cockpit, down in the cabin), on piers and land,
+// or swimming. Pure: the world is only asked "what can I stand on here?" and "where is the water?".
 
 export interface Surface {
   /** top height in metres (world Y) */
   top: number;
   /** belongs to the player's boat (a moving platform) */
   boat: boolean;
+  /** underside of a roof or slab you can walk below; undefined = solid all the way down */
+  bottom?: number;
 }
 
 export interface WalkWorld {
@@ -29,12 +31,14 @@ export const PERSON = {
   walk: 2.0, // m/s
   run: 4.6,
   swim: 1.1,
-  jump: 5.6, // take-off speed, ~0.85 m high
+  jump: 6.3, // take-off speed, ~1.1 m high: over the railing, onto the cabin roof
   gravity: 18,
   step: 0.4, // highest ledge you can walk up without jumping
   maxSlope: 1.1, // rise per metre you can still walk up
   swimDepth: 1.3, // feet below the surface while swimming
   climbReach: 2.4, // how high above the water you can pull yourself up
+  head: 1.7, // clearance needed under a roof
+  radius: 0.25, // keeps the eyes (and the camera's near plane) off the walls
 };
 
 export class PersonController {
@@ -86,8 +90,8 @@ export class PersonController {
     }
     const startX = this.x;
     const startZ = this.z;
-    this.tryMove(this.x + dx * speed * dt, this.z, world);
-    this.tryMove(this.x, this.z + dz * speed * dt, world);
+    this.tryMove(this.x + dx * speed * dt, this.z, Math.sign(dx), 0, world);
+    this.tryMove(this.x, this.z + dz * speed * dt, 0, Math.sign(dz), world);
     this.speed = Math.hypot(this.x - startX, this.z - startZ) / Math.max(dt, 1e-6);
 
     const water = world.waterLevel(this.x, this.z);
@@ -113,7 +117,15 @@ export class PersonController {
       this.mode = 'air';
     }
     this.vy -= PERSON.gravity * dt;
+    const prevY = this.y;
     this.y += this.vy * dt;
+    // Bumping the head on a roof.
+    for (const s of world.surfacesAt(this.x, this.z)) {
+      if (s.bottom !== undefined && prevY + PERSON.head <= s.bottom + 1e-6 && this.y + PERSON.head > s.bottom) {
+        this.y = s.bottom - PERSON.head;
+        this.vy = Math.min(this.vy, 0);
+      }
+    }
 
     if (support && this.y <= ground + (this.mode === 'ground' ? PERSON.step : 0)) {
       // Landed, or still walking on it (following slopes and the moving deck downwards).
@@ -142,18 +154,27 @@ export class PersonController {
     return best;
   }
 
-  /** Moves unless something too high (a wall, a too steep slope) is in the way. */
-  private tryMove(nx: number, nz: number, world: WalkWorld): void {
+  /**
+   * Moves unless something too high (a wall, a too steep slope) is in the way, at the new spot or
+   * a body radius ahead of it in the direction (dirX, dirZ).
+   */
+  private tryMove(nx: number, nz: number, dirX: number, dirZ: number, world: WalkWorld): void {
     const dist = Math.hypot(nx - this.x, nz - this.z);
     if (dist === 0) return;
-    for (const s of world.surfacesAt(nx, nz)) {
-      const rise = s.top - this.y;
-      if (rise <= 0) continue;
-      if (rise > PERSON.step) return; // wall, hull side, house…
-      if (this.mode === 'ground' && rise > PERSON.maxSlope * dist && rise > 0.05) return; // too steep
-    }
+    if (this.blocked(nx, nz, dist, world) || this.blocked(nx + dirX * PERSON.radius, nz + dirZ * PERSON.radius, dist, world)) return;
     this.x = nx;
     this.z = nz;
+  }
+
+  private blocked(x: number, z: number, dist: number, world: WalkWorld): boolean {
+    for (const s of world.surfacesAt(x, z)) {
+      const rise = s.top - this.y;
+      if (rise <= 0) continue;
+      if (s.bottom !== undefined && s.bottom >= this.y + PERSON.head) continue; // a roof to walk under
+      if (rise > PERSON.step) return true; // wall, hull side, house…
+      if (this.mode === 'ground' && rise > PERSON.maxSlope * dist && rise > 0.05) return true; // too steep
+    }
+    return false;
   }
 
   /** Pulls the swimmer up onto a pier, pontoon, boat or rocks right in front of them. */

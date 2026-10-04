@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { HALF_BEAM, LENGTH } from '../boat/layout';
 import type { ShoreMap } from './shoreMap';
 import type { WakeMap } from './wakeMap';
 import { SHORE_RANGE, WAVE_COUNT, maxHeight, type WaveField } from './waves';
@@ -203,6 +204,16 @@ export class Water {
           '#include <color_fragment>',
           /* glsl */ `
           #include <color_fragment>
+          // No sea inside the player's hull: down in the cabin the floor is close to the waterline.
+          {
+            vec2 rel = vWaterXZ - uBoat.xy;
+            float t = (${(LENGTH / 2).toFixed(2)} - dot(rel, uBoat.zw)) / ${LENGTH.toFixed(2)};
+            float side = abs(dot(rel, vec2(-uBoat.w, uBoat.z)));
+            float w = t < 0.55
+              ? ${HALF_BEAM.toFixed(2)} * pow(sin(t / 0.55 * 1.5707963), 0.75)
+              : ${HALF_BEAM.toFixed(2)} * (1.0 - 0.25 * pow((t - 0.55) / 0.45, 2.0));
+            if (t > 0.03 && t < 0.98 && side < w - 0.2) discard;
+          }
           float sd = shoreDistance(vWaterXZ);
           // Crest foam out at sea, lighter turquoise in the shallows.
           float foam = smoothstep(0.6, 1.0, vCrest) * 0.4;
