@@ -203,6 +203,8 @@ perfFolder.add(governor, 'pixelRatio').name('pixel ratio now').listen().disable(
 const trafficFolder = gui.addFolder('Traffic');
 trafficFolder.add(traffic, 'density', 0, 3, 0.1);
 trafficFolder.add({ get vessels() { return traffic.vessels.length; } }, 'vessels').listen().disable();
+const environmentFolder = gui.addFolder('Environment');
+environmentFolder.add(environment, 'night').name('night (N)').listen();
 const soundFolder = gui.addFolder('Sound');
 soundFolder.add(seaSound, 'volume', 0, 2, 0.05);
 soundFolder.add(seaSound, 'muted').name('muted (V)').listen();
@@ -228,6 +230,7 @@ renderer.setAnimationLoop((timestamp) => {
   if (input.wasPressed('KeyC')) coastLines.object.visible = !coastLines.object.visible;
   if (input.wasPressed('KeyM')) minimap.zoom();
   if (input.wasPressed('KeyV')) seaSound.toggleMute();
+  if (input.wasPressed('KeyN')) environment.night = !environment.night;
   if (input.wasPressed('KeyR')) {
     clearSavedBoat();
     resetBoat();
@@ -245,6 +248,7 @@ renderer.setAnimationLoop((timestamp) => {
   water.setBoat(boat.position.x, boat.position.z, boat.state.heading, boat.state.speed);
   water.update(time, boat.position.x, boat.position.z);
   rig.update(dt, input, boat);
+  environment.update(dt, camera);
   environment.follow(boat.object.position);
   terrain.update(boat.position.x, boat.position.z);
   shoreMap.update(boat.position.x, boat.position.z);
@@ -269,4 +273,4 @@ renderer.setAnimationLoop((timestamp) => {
 });
 
 // Dev-only handle for poking at the scene from the browser console.
-if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, seaSound, traffic, trafficRenderer } });
+if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, seaSound, traffic, trafficRenderer, environment } });

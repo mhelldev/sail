@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { lightPointsMaterial, NIGHT } from '../world/night';
 
 // Procedural sailboat, ~10 m long. Local axes: forward = -Z, starboard = +X, up = +Y.
 // The waterline is at y = 0.
@@ -192,6 +193,8 @@ export class BoatModel {
   private readonly jibAxis: THREE.Vector3;
   private readonly windex = new THREE.Group();
   private sailAmount = 1;
+  private readonly glass: THREE.MeshStandardMaterial;
+  private readonly navLights: THREE.Points;
   private bellySide = 1;
 
   constructor() {
@@ -199,7 +202,8 @@ export class BoatModel {
 
     const teak = new THREE.MeshStandardMaterial({ color: 0xa47148, roughness: 0.8 });
     const cabinMat = new THREE.MeshStandardMaterial({ color: 0xe9e6dd, roughness: 0.6 });
-    const glass = new THREE.MeshStandardMaterial({ color: 0x1b2a35, roughness: 0.1, metalness: 0.3 });
+    const glass = new THREE.MeshStandardMaterial({ color: 0x1b2a35, roughness: 0.1, metalness: 0.3, emissive: 0xffb860, emissiveIntensity: 0 });
+    this.glass = glass;
     const metal = new THREE.MeshStandardMaterial({ color: 0xb8bec4, roughness: 0.35, metalness: 0.7 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.6 });
     const sailMat = new THREE.MeshStandardMaterial({ color: 0xfbf8ef, roughness: 0.85, side: THREE.DoubleSide });
@@ -284,6 +288,24 @@ export class BoatModel {
     this.windex.add(vane);
     this.tilt.add(this.windex);
 
+    // Navigation lights: masthead white, port (-X) red, starboard (+X) green, near the bow.
+    const bowZ = -LENGTH / 2 + 1.4;
+    const bowY = deckY(0.14) + 0.35;
+    const side = halfWidth(0.14) * 0.95;
+    const lights: Array<[number, number, number, number]> = [
+      [0, MAST_TOP + 0.35, MAST_Z, 0xfff4dc],
+      [-side, bowY, bowZ, 0xff2a1a],
+      [side, bowY, bowZ, 0x18ff5a],
+      [0, deckY(1) + 0.6, LENGTH / 2 - 0.2, 0xfff4dc], // stern light
+    ];
+    const geo = new THREE.BufferGeometry();
+    const c = new THREE.Color();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(lights.flatMap(([x, y, z]) => [x, y, z]), 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(lights.flatMap(([, , , hex]) => c.setHex(hex).toArray()), 3));
+    this.navLights = new THREE.Points(geo, lightPointsMaterial(7));
+    this.navLights.frustumCulled = false;
+    this.tilt.add(this.navLights);
+
     shadowed(this.root);
   }
 
@@ -311,6 +333,12 @@ export class BoatModel {
 
     this.windex.rotation.y = -THREE.MathUtils.degToRad(relWindDeg);
     this.wheel.rotation.z = wheelTurn;
+
+    // At night: navigation lights on, warm light behind the cabin windows.
+    const night = NIGHT.value;
+    (this.navLights.material as THREE.PointsMaterial).opacity = night;
+    this.navLights.visible = night > 0.01;
+    this.glass.emissiveIntensity = night * 1.4;
   }
 }
 

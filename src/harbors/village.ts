@@ -26,7 +26,8 @@ export type PartType =
   | 'flag'
   | 'millTower'
   | 'millCap'
-  | 'rock';
+  | 'rock'
+  | 'lampPost';
 
 /** One instance of a unit mesh: position of its base, rotation around Y, size, colour (sRGB hex). */
 export interface Part {
@@ -58,6 +59,8 @@ export interface Village {
   mills: Array<{ x: number; y: number; z: number; rotY: number }>;
   /** lighthouses the village wants (when there is no real one nearby) */
   lighthouses: Array<{ x: number; z: number }>;
+  /** lamps that glow at night: harbour lights, street lamps */
+  lights: Array<{ x: number; y: number; z: number; color: number }>;
 }
 
 export interface Ground {
@@ -95,6 +98,7 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
   const obstacles: Obstacle[] = [];
   const mills: Village['mills'] = [];
   const lighthouses: Village['lighthouses'] = [];
+  const lights: Village['lights'] = [];
   const add = (p: Part) => parts.push(p);
   const big = h.isHarbour;
 
@@ -209,6 +213,7 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
       }
       const tip = at(side * mouth, depth);
       add({ type: 'harbourLight', x: tip.x, y: 2, z: tip.z, rotY: 0, sx: 1.6, sy: 6, sz: 1.6, color: light });
+      lights.push({ x: tip.x, y: 8.4, z: tip.z, color: light });
     }
     if (big && !options.hasRealLighthouse && rng() < 0.6) {
       const p = at(-width - 25, -10);
@@ -295,6 +300,15 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
     }
   }
 
+  // Street lamps along the quay.
+  for (let u = -quay; u <= quay; u += 24) {
+    const p = at(u, -13);
+    if (ground.sd(p.x, p.z) < 6 || !free(p.x, p.z, 0.5)) continue;
+    const y = ground.height(p.x, p.z);
+    add({ type: 'lampPost', x: p.x, y, z: p.z, rotY: 0, sx: 0.22, sy: 5, sz: 0.22, color: 0x2b2f33 });
+    lights.push({ x: p.x, y: y + 5.2, z: p.z, color: 0xffc070 });
+  }
+
   // Quayside row facing the water.
   for (let u = -quay; u <= quay; u += rand(9.5, 13)) addHouse(u, -24, seaward);
 
@@ -336,7 +350,7 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
     i++;
   }
 
-  return { harborId: h.id, parts, obstacles, mills, lighthouses };
+  return { harborId: h.id, parts, obstacles, mills, lighthouses, lights };
 }
 
 /** Signed distance to an obstacle box: positive inside (like land), negative outside. */

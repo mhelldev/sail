@@ -158,10 +158,10 @@ export class Water {
     uWakeRect: { value: new THREE.Vector3(0, 0, 1) },
     uBoat: { value: new THREE.Vector4() },
     uBoatSpeed: { value: 0 },
-    uRipple: { value: 1 },
+    uRipple: { value: 0.05 },
   };
   /** Strength of the small world-fixed ripples (debug panel). */
-  readonly detail = { ripples: 1 };
+  readonly detail = { ripples: 0.05 };
 
   constructor(
     private readonly field: WaveField,

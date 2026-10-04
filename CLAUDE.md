@@ -46,7 +46,7 @@ project at `/Users/michael/projects/godot/boat3d`.
 ## Controls
 
 - Keyboard: ←/→ or A/D steer (moves the helm, which eases back to centre), S sail, T turbo, 1/2/3 camera,
-  M map range, R back to start, G tuning panel. Mouse drag orbits, wheel zooms.
+  M map range, V sound, N night, R back to start, G tuning panel. Mouse drag orbits, wheel zooms.
 - Touch (`core/touchControls.ts`, `ui/touchUi.ts`): one finger drags the helm, two fingers orbit/pinch-zoom,
   tap the minimap to change range, on-screen Sail/View buttons. `body.touch` switches the touch UI on.
 - Both keyboard and touch drive `boat/helm.ts`; the rudder and the 3D wheel follow the helm position.
@@ -96,6 +96,16 @@ project at `/Users/michael/projects/godot/boat3d`.
   trawler; ferry; container ship, tanker, bulk carrier) as shapes in the vessel frame (+Z bow, +X port).
 - `trafficRenderer.ts`: one InstancedMesh per shape type; per frame vessel pose (waves, heel) × part placement.
   Vessels are solid for the player (oriented boxes in `boat.landDistance`). Measured: ~0.1 ms CPU, no visible GPU cost.
+
+## Night mode
+
+- `world/night.ts` `NIGHT.value` (0 day … 1 night) is the single source: `Environment.update` eases it over 3 s
+  when `environment.night` changes (Tuning → Environment, or N). Default is day.
+- The sun sinks to −12° so the Sky shader itself goes dark; stars (Points around the camera), faint moonlight,
+  dimmed environment map, night fog colour.
+- Lights are additive `Points` with constant screen size (`lightPointsMaterial`), so they stay visible far away:
+  vessel/boat navigation lights, harbour lights, quay street lamps, lighthouse lamps. Lighthouse beams brighten.
+- Windows glow from the shared building shader (`uNight` uniform): per-window hash, ~55% lit, warm tones.
 
 ## Ideas for later
 

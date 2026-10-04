@@ -4,7 +4,19 @@
 import alea from 'alea';
 import type { VesselKind } from './vessel';
 
-export type ShapeType = 'hull' | 'box' | 'deckhouse' | 'cyl' | 'sail' | 'cone';
+export type ShapeType = 'hull' | 'box' | 'deckhouse' | 'cyl' | 'sail' | 'cone' | 'light';
+
+const RED = 0xff2a1a;
+const GREEN = 0x18ff5a;
+const WHITE = 0xfff4dc;
+
+/** Navigation lights: red to port (+X), green to starboard, at (x, y, z) in the vessel frame. */
+function sidelights(s: Shape[], halfBeam: number, y: number, z: number): void {
+  s.push(light(halfBeam, y, z, RED), light(-halfBeam, y, z, GREEN));
+}
+function light(x: number, y: number, z: number, color: number): Shape {
+  return { type: 'light', x, y, z, sx: 1, sy: 1, sz: 1, color };
+}
 
 export interface Shape {
   type: ShapeType;
@@ -32,16 +44,25 @@ export const CARGO_VARIANTS = 3;
 
 export function designVessel(kind: VesselKind, variant: number, length: number, beam: number, seed: number): Shape[] {
   const rng = alea(seed);
-  switch (kind) {
-    case 'yacht':
-      return yacht(variant % YACHT_VARIANTS, length, beam, rng);
-    case 'motor':
-      return motorboat(variant % MOTOR_VARIANTS, length, beam, rng);
-    case 'ferry':
-      return ferry(length, beam, rng);
-    case 'cargo':
-      return cargo(variant % CARGO_VARIANTS, length, beam, rng);
-  }
+  const shapes = (() => {
+    switch (kind) {
+      case 'yacht':
+        return yacht(variant % YACHT_VARIANTS, length, beam, rng);
+      case 'motor':
+        return motorboat(variant % MOTOR_VARIANTS, length, beam, rng);
+      case 'ferry':
+        return ferry(length, beam, rng);
+      case 'cargo':
+        return cargo(variant % CARGO_VARIANTS, length, beam, rng);
+    }
+  })();
+  // Every vessel: sidelights near the bow, a white light on top of its highest mast or structure.
+  const top = shapes.filter((p) => p.type !== 'sail' && p.type !== 'light').reduce((m, p) => (p.y + p.sy > m.y + m.sy ? p : m));
+  const width = kind === 'yacht' && variant % YACHT_VARIANTS === 3 ? length * 0.27 : beam * 0.48;
+  sidelights(shapes, width, length * (kind === 'cargo' ? 0.06 : 0.11), length * 0.3);
+  shapes.push(light(top.x, top.y + top.sy + 0.3, top.z, WHITE));
+  if (kind === 'cargo' || kind === 'ferry') shapes.push(light(0, length * 0.12, length * 0.44, WHITE)); // forward masthead
+  return shapes;
 }
 
 // ---- Sailboats ---------------------------------------------------------------------------------

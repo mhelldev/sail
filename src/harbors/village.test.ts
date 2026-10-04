@@ -9,7 +9,7 @@ const ground: Ground = {
 };
 const harbor = (id: number, isHarbour: boolean): Harbor => ({ id, name: `Test ${id}`, x: 0, z: 0, seaX: 1, seaZ: 0, isHarbour });
 
-const LAND = new Set(['house', 'roof', 'chimney', 'tower', 'spire', 'trunk', 'crown', 'conifer', 'flagpole', 'flag', 'millTower', 'millCap']);
+const LAND = new Set(['house', 'roof', 'chimney', 'tower', 'spire', 'trunk', 'crown', 'conifer', 'flagpole', 'flag', 'millTower', 'millCap', 'lampPost']);
 const WATER = new Set(['deck', 'pile', 'pontoon', 'breakwater', 'rock', 'hull', 'mast', 'cabin', 'harbourLight']);
 
 describe('generateVillage', () => {

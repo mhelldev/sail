@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { lightPointsMaterial, NIGHT } from '../world/night';
 import type { HarborData, Lighthouse } from './harborData';
 import { generateVillage, obstacleDistance, type Ground, type Obstacle, type PartType, type Village } from './village';
 
@@ -71,6 +72,7 @@ const GEOMETRY: Record<PartType, () => THREE.BufferGeometry> = {
   millTower: () => new THREE.CylinderGeometry(0.32, 0.5, 1, 8).translate(0, 0.5, 0),
   millCap: gable,
   rock: () => new THREE.DodecahedronGeometry(0.5, 0),
+  lampPost: () => new THREE.CylinderGeometry(0.5, 0.5, 1, 5).translate(0, 0.5, 0),
 };
 
 /** Wall types that get procedural windows. */
@@ -83,8 +85,9 @@ const WINDOWED = new Set<PartType>(['house', 'tower']);
 export function buildingMaterial(): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({ roughness: 0.85, flatShading: true });
   mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uNight = NIGHT;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWallPos;\nvarying vec3 vWallNormal;\nvarying vec3 vWallSize;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWallPos;\nvarying vec3 vWallNormal;\nvarying vec3 vWallSize;\nvarying vec3 vWallSeed;')
       .replace(
         '#include <begin_vertex>',
         /* glsl */ `
@@ -93,14 +96,19 @@ export function buildingMaterial(): THREE.MeshStandardMaterial {
         vWallPos = position * wallScale; // metres in the building's own frame
         vWallNormal = normal;
         vWallSize = wallScale;
+        vWallSeed = instanceMatrix[3].xyz; // where the building stands: a stable random seed
         `,
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWallPos;\nvarying vec3 vWallNormal;\nvarying vec3 vWallSize;')
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying vec3 vWallPos;\nvarying vec3 vWallNormal;\nvarying vec3 vWallSize;\nvarying vec3 vWallSeed;\nuniform float uNight;',
+      )
       .replace(
         '#include <color_fragment>',
         /* glsl */ `
         #include <color_fragment>
+        vec3 windowGlow = vec3(0.0);
         if (abs(vWallNormal.y) < 0.5) {
           bool sideX = abs(vWallNormal.x) > 0.5;
           float along = sideX ? vWallPos.z : vWallPos.x;
@@ -111,9 +119,15 @@ export function buildingMaterial(): THREE.MeshStandardMaterial {
           float inside = step(0.9, vWallPos.y) * step(vWallPos.y, vWallSize.y - 0.7);
           float pane = step(0.32, fu) * step(fu, 0.68) * step(0.3, fv) * step(fv, 0.8) * inside;
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.05, 0.07, 0.09), pane * 0.85);
+          // At night some windows are lit, each with its own warm tone.
+          vec3 cell = vec3(floor((along / width + 0.5) * cols), floor(vWallPos.y / 2.9), sideX ? 1.0 : 2.0);
+          float h = fract(sin(dot(cell + vWallSeed * 0.137 + sign(vWallNormal.x + vWallNormal.z) * 7.1, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+          float lit = step(0.45, h);
+          windowGlow = pane * lit * uNight * mix(vec3(1.0, 0.62, 0.28), vec3(1.0, 0.82, 0.55), fract(h * 7.0)) * 1.8;
         }
         `,
-      );
+      )
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += windowGlow;');
   };
   return mat;
 }
@@ -190,6 +204,9 @@ export class HarborRenderer {
   private readonly lampMesh: THREE.InstancedMesh;
   private readonly beamMesh: THREE.InstancedMesh;
   private readonly sailsMesh: THREE.InstancedMesh;
+  /** night lights: harbour lights and street lamps (small), lighthouse lamps (big) */
+  private readonly lamps = new THREE.Points(new THREE.BufferGeometry(), lightPointsMaterial(10));
+  private readonly beacons = new THREE.Points(new THREE.BufferGeometry(), lightPointsMaterial(22));
   private readonly lastPlan = new THREE.Vector2(Infinity, Infinity);
   private pending: number[] = []; // harbour ids still to build, nearest first
   private sinceBuild = 0;
@@ -221,6 +238,10 @@ export class HarborRenderer {
       this.group.add(mesh);
     }
     this.lighthouseMesh.receiveShadow = true;
+    for (const p of [this.lamps, this.beacons]) {
+      p.frustumCulled = false;
+      this.group.add(p);
+    }
   }
 
   /** New terrain (tuning panel): rebuild everything on the new ground. */
@@ -354,10 +375,23 @@ export class HarborRenderer {
     }
     this.lighthouseMesh.count = this.lampMesh.count = this.beamMesh.count = i;
     this.lighthouseMesh.instanceMatrix.needsUpdate = this.lampMesh.instanceMatrix.needsUpdate = true;
+
+    const lamps: Array<{ x: number; y: number; z: number; color: number }> = [];
+    for (const v of this.villages.values()) lamps.push(...v.lights);
+    setPoints(this.lamps, lamps, this.c);
+    const beacons = [...this.activeLighthouses.values()].map((l) => ({ x: l.x, y: l.y + LAMP_HEIGHT, z: l.z, color: 0xfff1c4 }));
+    setPoints(this.beacons, beacons, this.c);
   }
 
-  /** Per frame: turn the lighthouse beams and the windmill sails. */
+  /** Per frame: turn the lighthouse beams and the windmill sails; fade night lights. */
   private animate(time: number): void {
+    const night = NIGHT.value;
+    (this.lamps.material as THREE.PointsMaterial).opacity = night;
+    (this.beacons.material as THREE.PointsMaterial).opacity = night;
+    this.lamps.visible = this.beacons.visible = night > 0.01;
+    (this.beamMesh.material as THREE.MeshBasicMaterial).opacity = 0.12 + 0.45 * night;
+    // The lamp room is a dull glass ball by day and bright at night.
+    (this.lampMesh.material as THREE.MeshBasicMaterial).color.setRGB(0.55 + 0.45 * night, 0.52 + 0.43 * night, 0.4 + 0.3 * night);
     let i = 0;
     for (const l of this.activeLighthouses.values()) {
       this.q.setFromAxisAngle(this.up, time * 0.6 + l.phase);
@@ -391,3 +425,18 @@ export class HarborRenderer {
 }
 
 export type { Lighthouse };
+
+/** Replaces a Points object's positions and colours. */
+function setPoints(points: THREE.Points, list: Array<{ x: number; y: number; z: number; color: number }>, c: THREE.Color): void {
+  const pos = new Float32Array(list.length * 3);
+  const col = new Float32Array(list.length * 3);
+  list.forEach((l, i) => {
+    pos.set([l.x, l.y, l.z], i * 3);
+    c.setHex(l.color);
+    col.set([c.r, c.g, c.b], i * 3);
+  });
+  points.geometry.dispose();
+  points.geometry = new THREE.BufferGeometry();
+  points.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  points.geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
+}

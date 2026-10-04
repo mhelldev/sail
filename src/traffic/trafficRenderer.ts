@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { buildingMaterial, hull } from '../harbors/harborRenderer';
 import { heightAt, type WaveField } from '../water/waves';
+import { lightPointsMaterial, NIGHT } from '../world/night';
 import { designVessel, type Shape, type ShapeType } from './vesselDesigns';
 import type { Vessel } from './vessel';
 
@@ -21,6 +22,7 @@ const GEOMETRY: Record<ShapeType, () => THREE.BufferGeometry> = {
   cyl: () => new THREE.CylinderGeometry(0.5, 0.5, 1, 8).translate(0, 0.5, 0),
   sail,
   cone: () => new THREE.ConeGeometry(0.5, 1, 8).translate(0, 0.5, 0),
+  light: () => new THREE.BufferGeometry(), // drawn as points, see navLights
 };
 
 interface Slot {
@@ -50,9 +52,22 @@ export class TrafficRenderer {
   private readonly v = new THREE.Vector3();
   private readonly s = new THREE.Vector3();
   private readonly c = new THREE.Color();
+  /** Navigation lights of all vessels, rewritten every frame (they move). */
+  private readonly navLights: THREE.Points;
+  private navPositions = new Float32Array(3 * 256);
+  private navColors = new Float32Array(3 * 256);
+  private navCount = 0;
+
+  constructor() {
+    this.navLights = new THREE.Points(new THREE.BufferGeometry(), lightPointsMaterial(6));
+    this.navLights.frustumCulled = false;
+    this.group.add(this.navLights);
+  }
 
   update(vessels: Vessel[], waves: WaveField, time: number, dt: number, px: number, pz: number): void {
     for (const slot of this.slots.values()) slot.count = 0;
+    this.navCount = 0;
+    const night = NIGHT.value;
     const alive = new Set<number>();
 
     for (const v of vessels) {
@@ -65,7 +80,13 @@ export class TrafficRenderer {
       }
       const furl = this.raiseSails(v, dt);
       this.pose(v, waves, time);
-      for (const shape of shapes) this.place(shape, v, furl);
+      for (const shape of shapes) {
+        if (shape.type === 'light') {
+          if (night > 0.01) this.addLight(shape);
+        } else {
+          this.place(shape, v, furl);
+        }
+      }
     }
 
     for (const id of this.designs.keys()) {
@@ -74,11 +95,42 @@ export class TrafficRenderer {
         this.furl.delete(id);
       }
     }
+    // Reuse the GPU buffers; only recreate them when the arrays grew.
+    const geo = this.navLights.geometry;
+    const pos = geo.getAttribute('position') as THREE.BufferAttribute | undefined;
+    if (!pos || pos.array !== this.navPositions) {
+      geo.setAttribute('position', new THREE.BufferAttribute(this.navPositions, 3).setUsage(THREE.DynamicDrawUsage));
+      geo.setAttribute('color', new THREE.BufferAttribute(this.navColors, 3).setUsage(THREE.DynamicDrawUsage));
+    } else {
+      pos.needsUpdate = true;
+      geo.getAttribute('color').needsUpdate = true;
+    }
+    geo.setDrawRange(0, this.navCount);
+    (this.navLights.material as THREE.PointsMaterial).opacity = night;
+    this.navLights.visible = night > 0.01 && this.navCount > 0;
+
     for (const slot of this.slots.values()) {
       slot.mesh.count = slot.count;
       slot.mesh.instanceMatrix.needsUpdate = true;
       if (slot.mesh.instanceColor) slot.mesh.instanceColor.needsUpdate = true;
     }
+  }
+
+  private addLight(shape: Shape): void {
+    if (this.navCount * 3 >= this.navPositions.length) {
+      const grow = (a: Float32Array) => {
+        const b = new Float32Array(a.length * 2);
+        b.set(a);
+        return b;
+      };
+      this.navPositions = grow(this.navPositions);
+      this.navColors = grow(this.navColors);
+    }
+    this.v.set(shape.x, shape.y, shape.z).applyMatrix4(this.world);
+    this.navPositions.set([this.v.x, this.v.y, this.v.z], this.navCount * 3);
+    this.c.setHex(shape.color);
+    this.navColors.set([this.c.r, this.c.g, this.c.b], this.navCount * 3);
+    this.navCount++;
   }
 
   private raiseSails(v: Vessel, dt: number): number {
