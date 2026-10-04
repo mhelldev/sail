@@ -35,6 +35,7 @@ function pointOfSail(angle: number): string {
 }
 
 export class Hud {
+  private readonly root: HTMLElement;
   private readonly speed: HTMLElement;
   private readonly heading: HTMLElement;
   private readonly wind: HTMLElement;
@@ -47,6 +48,7 @@ export class Hud {
 
   constructor(parent: HTMLElement) {
     const el = document.createElement('div');
+    this.root = el;
     el.className = 'hud';
     el.innerHTML = `
       <div class="hud-panel">
@@ -64,10 +66,14 @@ export class Hud {
         <path class="hud-boat" d="M0,-24 C8,-12 9,8 6,22 L-6,22 C-9,8 -8,-12 0,-24 Z" />
         <g data-arrow><path class="hud-arrow" d="M0,-20 L7,-33 L2,-33 L2,-46 L-2,-46 L-2,-33 L-7,-33 Z" /></g>
       </svg>
-      <div class="hud-help">
-        <b>←/→</b> or <b>A/D</b> steer · <b>S</b> sail up/down · <b>T</b> turbo ·
-        <b>1</b> chase · <b>2</b> deck · <b>3</b> top · <b>M</b> map range · <b>V</b> sound · <b>N</b> night · <b>R</b> back to start · <b>G</b> tuning
-      </div>`;
+      <div class="hud-help" data-help-sail>
+        <b>←/→</b> or <b>A/D</b> steer · <b>S</b> sail up/down · <b>T</b> turbo · <b>1</b> chase · <b>2</b> deck · <b>3</b> top · <b>4</b> walk ·
+        <b>M</b> map · <b>V</b> sound · <b>N</b> night · <b>R</b> start · <b>G</b> tuning
+      </div>
+      <div class="hud-help" data-help-walk hidden>
+        <b>↑↓←→</b> or <b>WASD</b> walk · <b>Shift</b> run · <b>Space</b> jump / climb · <b>click</b> + mouse to look (<b>Esc</b> releases) ·
+        <b>wheel</b> out: see yourself · <b>4</b> back to sailing
+</div>`;
     parent.appendChild(el);
     const q = <T extends Element>(sel: string) => el.querySelector(sel) as T;
     this.speed = q('[data-speed]');
@@ -79,6 +85,12 @@ export class Hud {
     this.pos = q('[data-pos]');
     this.coast = q('[data-coast]');
     this.harbor = q('[data-harbor]');
+  }
+
+  /** Shows the walking controls instead of the sailing ones. */
+  setWalking(walking: boolean): void {
+    (this.root.querySelector('[data-help-sail]') as HTMLElement).hidden = walking;
+    (this.root.querySelector('[data-help-walk]') as HTMLElement).hidden = !walking;
   }
 
   update(boat: Boat, wind: Wind, nav?: NavInfo): void {

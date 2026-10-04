@@ -348,3 +348,16 @@ export const PROBES = {
   stern: LENGTH / 2 - 1,
   beam: HALF_BEAM,
 };
+
+/**
+ * What a person can stand on at a point of the boat, in the boat's own frame (forward = -Z):
+ * the deck (following its sheer), or the cabin roof. Undefined outside the hull.
+ */
+export function deckHeightAt(x: number, z: number): number | undefined {
+  const t = (z + LENGTH / 2) / LENGTH;
+  if (t < 0 || t > 1) return undefined;
+  if (Math.abs(x) > halfWidth(t) - 0.05) return undefined;
+  // Cabin roof: 2.0 × 2.9 m box centred at z = -0.6, top at 1.65.
+  if (Math.abs(x) <= 1.0 && z >= -2.05 && z <= 0.85) return 1.65;
+  return deckY(t);
+}

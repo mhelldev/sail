@@ -47,6 +47,9 @@ project at `/Users/michael/projects/godot/boat3d`.
 
 - Keyboard: ←/→ or A/D steer (moves the helm, which eases back to centre), S sail, T turbo, 1/2/3 camera,
   M map range, V sound, N night, R back to start, G tuning panel. Mouse drag orbits, wheel zooms.
+- 4: walk mode (first person; mouse wheel out shows the person from behind). Arrows/WASD walk, Shift run,
+  Space jump (or climb out of the water), click to capture the mouse for looking (Esc releases).
+  4 or 1/2/3 returns to sailing. Desktop only so far.
 - Touch (`core/touchControls.ts`, `ui/touchUi.ts`): one finger drags the helm, two fingers orbit/pinch-zoom,
   tap the minimap to change range, on-screen Sail/View buttons. `body.touch` switches the touch UI on.
 - Both keyboard and touch drive `boat/helm.ts`; the rudder and the 3D wheel follow the helm position.
@@ -106,6 +109,17 @@ project at `/Users/michael/projects/godot/boat3d`.
 - Lights are additive `Points` with constant screen size (`lightPointsMaterial`), so they stay visible far away:
   vessel/boat navigation lights, harbour lights, quay street lamps, lighthouse lamps. Lighthouse beams brighten.
 - Windows glow from the shared building shader (`uNight` uniform): per-window hash, ~55% lit, warm tones.
+
+## Walk mode (`src/person/`)
+
+- `personController.ts` is pure: it only asks a `WalkWorld` for surfaces at a point (tops, boat or not) and the
+  water level. Surfaces higher than a step block (walls, hull sides); water below the feet → swimming;
+  Space while swimming climbs onto something within reach in front.
+- `walkMode.ts` builds the world: terrain height straight from the rendered chunk triangles
+  (`TerrainManager.heightAt`), village walk boxes (`HarborRenderer.surfacesAt`: pier, pontoons, breakwater
+  crest, buildings), the boat's deck/cabin roof via its matrix (`deckHeightAt` in `boat/model.ts`).
+- The boat is a moving platform: while standing on it (or airborne after leaving it) the person is carried
+  with the boat's matrix delta, so jumps on deck land on deck. The boat sails on with the helm centred.
 
 ## Ideas for later
 

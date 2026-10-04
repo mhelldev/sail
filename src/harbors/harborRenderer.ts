@@ -2,7 +2,28 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { lightPointsMaterial, NIGHT } from '../world/night';
 import type { HarborData, Lighthouse } from './harborData';
-import { generateVillage, obstacleDistance, type Ground, type Obstacle, type PartType, type Village } from './village';
+import { generateVillage, obstacleDistance, type Ground, type Obstacle, type Part, type PartType, type Village } from './village';
+
+/** Something a person can stand on or bump into: an oriented box footprint with a top height. */
+export interface WalkBox extends Obstacle {
+  top: number;
+}
+
+/** Footprint and top of the parts that matter for walking; everything else is decoration. */
+function walkBox(p: Part): WalkBox | undefined {
+  switch (p.type) {
+    case 'deck':
+    case 'pontoon':
+    case 'house':
+    case 'tower':
+    case 'millTower':
+      return { x: p.x, z: p.z, halfW: p.sx / 2, halfL: p.sz / 2, rotY: p.rotY, top: p.y + p.sy };
+    case 'breakwater':
+      return { x: p.x, z: p.z, halfW: p.sx * 0.22, halfL: p.sz / 2, rotY: p.rotY, top: p.y + p.sy }; // its flat crest
+    default:
+      return undefined;
+  }
+}
 
 const ACTIVE_RADIUS = 8000; // villages and lighthouses within this distance are built
 const DROP_RADIUS = 10000; // and dropped beyond this one (hysteresis)
@@ -199,6 +220,7 @@ export class HarborRenderer {
   private readonly wallMaterial = buildingMaterial();
   private readonly slots = new Map<PartType, Slot>();
   private readonly villages = new Map<number, Village>();
+  private readonly walkBoxes = new Map<number, WalkBox[]>();
   private readonly activeLighthouses = new Map<string, { x: number; y: number; z: number; phase: number }>();
   private readonly lighthouseMesh: THREE.InstancedMesh;
   private readonly lampMesh: THREE.InstancedMesh;
@@ -248,6 +270,7 @@ export class HarborRenderer {
   setGround(ground: Ground): void {
     this.ground = ground;
     this.villages.clear();
+    this.walkBoxes.clear();
     this.activeLighthouses.clear();
     this.lastPlan.set(Infinity, Infinity);
     this.dirty = true;
@@ -268,6 +291,7 @@ export class HarborRenderer {
       const hasRealLighthouse = this.data.lighthouses.near(h.x, h.z, REAL_LIGHTHOUSE_NEAR).length > 0;
       const village = generateVillage(h, this.ground, { hasRealLighthouse });
       this.villages.set(id, village);
+      this.walkBoxes.set(id, village.parts.map(walkBox).filter((b): b is WalkBox => !!b));
       village.lighthouses.forEach((l, i) => this.addLighthouse(`v${id}:${i}`, l.x, l.z));
       this.dirty = true;
     }
@@ -290,6 +314,18 @@ export class HarborRenderer {
     return best;
   }
 
+  /** Tops of piers, pontoons, breakwaters and buildings at a point (for walking). */
+  surfacesAt(x: number, z: number): number[] {
+    const tops: number[] = [];
+    for (const boxes of this.walkBoxes.values()) {
+      for (const b of boxes) {
+        if (Math.abs(b.x - x) > b.halfL + b.halfW || Math.abs(b.z - z) > b.halfL + b.halfW) continue;
+        if (obstacleDistance(b, x, z) >= 0) tops.push(b.top);
+      }
+    }
+    return tops;
+  }
+
   get villageCount(): number {
     return this.villages.size;
   }
@@ -299,6 +335,7 @@ export class HarborRenderer {
       const h = this.data.harbors.items[id];
       if (Math.hypot(h.x - x, h.z - z) > DROP_RADIUS) {
         this.villages.delete(id);
+        this.walkBoxes.delete(id);
         this.dirty = true;
       }
     }

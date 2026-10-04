@@ -12,6 +12,7 @@ import { CoastLines } from './geo/coastLines';
 import { Coastline, type CoastData } from './geo/coastline';
 import { HarborData } from './harbors/harborData';
 import { HarborRenderer } from './harbors/harborRenderer';
+import { WalkMode } from './person/walkMode';
 import { TrafficManager } from './traffic/trafficManager';
 import { TrafficRenderer } from './traffic/trafficRenderer';
 import type { Ground } from './harbors/village';
@@ -150,6 +151,8 @@ coastLines.object.visible = false;
 scene.add(coastLines.object);
 
 const rig = new CameraRig(camera, renderer.domElement);
+const walk = new WalkMode(camera, renderer.domElement, boat, waves, terrain, harbors);
+scene.add(walk.model.root);
 const hud = new Hud(app);
 const minimap = new Minimap(app, coastline, harborData, () => traffic.vessels);
 const fps = new FpsCounter(app);
@@ -231,6 +234,15 @@ renderer.setAnimationLoop((timestamp) => {
   if (input.wasPressed('KeyM')) minimap.zoom();
   if (input.wasPressed('KeyV')) seaSound.toggleMute();
   if (input.wasPressed('KeyN')) environment.night = !environment.night;
+  // 4: walk around as a person (third person); 4 again or 1/2/3: back to sailing.
+  if (input.wasPressed('Digit4')) {
+    if (walk.active) walk.exit();
+    else walk.enter();
+    hud.setWalking(walk.active);
+  } else if (walk.active && ['Digit1', 'Digit2', 'Digit3'].some((k) => input.wasPressed(k))) {
+    walk.exit();
+    hud.setWalking(false);
+  }
   if (input.wasPressed('KeyR')) {
     clearSavedBoat();
     resetBoat();
@@ -241,13 +253,14 @@ renderer.setAnimationLoop((timestamp) => {
   const seaState = THREE.MathUtils.clamp(wind.speed / 15, 0.15, 1);
   waves.amplitude += (waveTuning.scale * seaState - waves.amplitude) * (1 - Math.exp(-0.2 * dt));
   seaSound.update(seaState, camera.position.y);
-  boat.update(dt, time, input, wind, waves, touch.steer);
+  boat.update(dt, time, input, wind, waves, touch.steer, !walk.active);
   const fwd = boat.forward();
   wake.update(boat.position.x - fwd.x * 4.8, boat.position.z - fwd.z * 4.8, boat.state.speed);
   wakeMap.render(renderer, wake, boat.position.x, boat.position.z);
   water.setBoat(boat.position.x, boat.position.z, boat.state.heading, boat.state.speed);
   water.update(time, boat.position.x, boat.position.z);
-  rig.update(dt, input, boat);
+  if (walk.active) walk.update(dt, time, input);
+  else rig.update(dt, input, boat);
   environment.update(dt, camera);
   environment.follow(boat.object.position);
   terrain.update(boat.position.x, boat.position.z);
@@ -273,4 +286,4 @@ renderer.setAnimationLoop((timestamp) => {
 });
 
 // Dev-only handle for poking at the scene from the browser console.
-if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, seaSound, traffic, trafficRenderer, environment } });
+if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, seaSound, traffic, trafficRenderer, environment, walk } });

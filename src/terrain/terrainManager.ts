@@ -64,6 +64,31 @@ export class TerrainManager {
     }
   }
 
+  /**
+   * Height of the rendered terrain at a world point (exactly on its triangles), or undefined
+   * where no land chunk is loaded (open water).
+   */
+  heightAt(x: number, z: number): number | undefined {
+    const cx = Math.floor(x / CHUNK_SIZE);
+    const cz = Math.floor(z / CHUNK_SIZE);
+    const chunk = this.chunks.get(`${cx},${cz}`);
+    if (!chunk?.mesh || !chunk.res) return undefined;
+    const res = chunk.res;
+    const n = res + 1;
+    const step = CHUNK_SIZE / res;
+    const gx = (x - cx * CHUNK_SIZE) / step;
+    const gz = (z - cz * CHUNK_SIZE) / step;
+    const col = Math.min(res - 1, Math.max(0, Math.floor(gx)));
+    const row = Math.min(res - 1, Math.max(0, Math.floor(gz)));
+    const fx = gx - col;
+    const fz = gz - row;
+    const p = chunk.mesh.geometry.attributes.position.array as Float32Array;
+    const h = (c: number, r: number) => p[(r * n + c) * 3 + 1];
+    // Same split as the index buffer: (a, a+n, a+1) and (a+1, a+n, a+n+1).
+    if (fx + fz <= 1) return h(col, row) + (h(col + 1, row) - h(col, row)) * fx + (h(col, row + 1) - h(col, row)) * fz;
+    return h(col + 1, row + 1) + (h(col, row + 1) - h(col + 1, row + 1)) * (1 - fx) + (h(col + 1, row) - h(col + 1, row + 1)) * (1 - fz);
+  }
+
   /** Signed coast distance grid for the water's shore map, computed on a worker. */
   computeShore(x0: number, z0: number, step: number, res: number): Promise<Uint8Array> {
     const id = this.nextJobId++;

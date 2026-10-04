@@ -43,14 +43,18 @@ export class Boat {
   /**
    * @param touchSteer helm position held by a finger (touch screens), or null
    */
-  update(dt: number, time: number, input: Input, wind: Wind, waves: WaveField, touchSteer: number | null = null): void {
-    if (input.wasPressed('KeyS')) this.sailUp = !this.sailUp;
-    if (input.wasPressed('KeyT')) this.turbo = !this.turbo;
+  /**
+   * @param controls false while the player walks around: the keys belong to the person then,
+   *   and the boat sails on with the helm centred
+   */
+  update(dt: number, time: number, input: Input, wind: Wind, waves: WaveField, touchSteer: number | null = null, controls = true): void {
+    if (controls && input.wasPressed('KeyS')) this.sailUp = !this.sailUp;
+    if (controls && input.wasPressed('KeyT')) this.turbo = !this.turbo;
 
     let keys = 0;
-    if (input.isDown('ArrowLeft', 'KeyA')) keys -= 1;
-    if (input.isDown('ArrowRight', 'KeyD')) keys += 1;
-    this.helm.update(dt, keys, touchSteer);
+    if (controls && input.isDown('ArrowLeft', 'KeyA')) keys -= 1;
+    if (controls && input.isDown('ArrowRight', 'KeyD')) keys += 1;
+    this.helm.update(dt, keys, controls ? touchSteer : null);
 
     this.state = stepSailing(
       this.state,
