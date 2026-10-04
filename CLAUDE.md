@@ -83,6 +83,20 @@ project at `/Users/michael/projects/godot/boat3d`.
 - Boat collision uses `max(coast distance, harbour obstacle distance)`.
 - GPU timing is noisy (clock changes): compare with/without by alternating several batches and using medians.
 
+## Generated traffic (`src/traffic/`)
+
+- No real AIS data, no models: everything is generated. `trafficManager.ts` keeps ~10 yachts, 6 motorboats,
+  2 ferries and 3 cargo ships around the player (scaled by the Traffic density slider), tied to the real harbour
+  data: yachts/motorboats leave marinas (out and back, or marina to marina), ferries shuttle between two harbours,
+  ships pass offshore entering/leaving at 15 km (inside the fog). Arrived boats wait, then go home once you're away.
+- Routes: `waterPath.ts` A* on the coastline's land mask (dilated per vessel size), pulled tight into straight legs.
+- `vessel.ts`: pure movement (turn-rate limited steering, slowing for turns and arrival). Yachts use the player's
+  polar/boom/heel functions and motor with sails down closer than 42° to the wind instead of tacking.
+- `vesselDesigns.ts`: procedural looks per type/variant (sloop, classic, ketch, catamaran; speedboat, cruiser,
+  trawler; ferry; container ship, tanker, bulk carrier) as shapes in the vessel frame (+Z bow, +X port).
+- `trafficRenderer.ts`: one InstancedMesh per shape type; per frame vessel pose (waves, heel) × part placement.
+  Vessels are solid for the player (oriented boxes in `boat.landDistance`). Measured: ~0.1 ms CPU, no visible GPU cost.
+
 ## Ideas for later
 
 - Higher-resolution coastline (OSM land polygons) — only `public/data/coast.json` needs to change

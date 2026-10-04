@@ -17,6 +17,7 @@ export class TouchUi {
   private readonly wheel: SVGGElement;
   private readonly sailButton: HTMLButtonElement;
   private readonly hint: HTMLElement;
+  private readonly soundButton: HTMLButtonElement;
 
   constructor(parent: HTMLElement, input: Input, nextViewKey: () => string) {
     this.root.className = 'touch-ui';
@@ -32,6 +33,7 @@ export class TouchUi {
       <div class="touch-buttons">
         <button type="button" data-sail-toggle>Sail down</button>
         <button type="button" data-view-toggle>View</button>
+        <button type="button" data-sound-toggle>Sound</button>
       </div>
       <div class="touch-hint">Drag to steer · two fingers move the camera · tap the map to zoom</div>`;
     parent.appendChild(this.root);
@@ -41,6 +43,8 @@ export class TouchUi {
     this.hint = this.root.querySelector('.touch-hint') as HTMLElement;
     this.sailButton.addEventListener('click', () => input.trigger('KeyS'));
     this.root.querySelector('[data-view-toggle]')!.addEventListener('click', () => input.trigger(nextViewKey()));
+    this.soundButton = this.root.querySelector('[data-sound-toggle]') as HTMLButtonElement;
+    this.soundButton.addEventListener('click', () => input.trigger('KeyV'));
 
     const enable = () => {
       if (document.body.classList.contains('touch')) return;
@@ -53,7 +57,8 @@ export class TouchUi {
   }
 
   /** @param showHelm false in the deck view, where the real wheel is right in front of the camera */
-  update(wheelAngle: number, sailUp: boolean, showHelm: boolean): void {
+  update(wheelAngle: number, sailUp: boolean, showHelm: boolean, muted = false): void {
+    this.soundButton.textContent = muted ? 'Sound off' : 'Sound on';
     this.helm.style.visibility = showHelm ? 'visible' : 'hidden';
     this.wheel.style.transform = `rotate(${(wheelAngle * 180) / Math.PI}deg)`;
     this.sailButton.textContent = sailUp ? 'Sail down' : 'Sail up';

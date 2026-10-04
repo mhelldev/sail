@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import GUI from 'lil-gui';
+import { SeaSound } from './audio/seaSound';
 import { Boat } from './boat/boat';
 import { SAILING } from './boat/sailing';
 import { CameraRig } from './camera/cameraRig';
@@ -11,6 +12,8 @@ import { CoastLines } from './geo/coastLines';
 import { Coastline, type CoastData } from './geo/coastline';
 import { HarborData } from './harbors/harborData';
 import { HarborRenderer } from './harbors/harborRenderer';
+import { TrafficManager } from './traffic/trafficManager';
+import { TrafficRenderer } from './traffic/trafficRenderer';
 import type { Ground } from './harbors/village';
 import { FlattenSites } from './terrain/flatten';
 import { LocalProjection } from './geo/projection';
@@ -96,6 +99,9 @@ function groundFor(params: TerrainParams): Ground {
 }
 const harbors = new HarborRenderer(harborData, groundFor(terrainParams));
 scene.add(harbors.group);
+const traffic = new TrafficManager(coastline, harborData);
+const trafficRenderer = new TrafficRenderer();
+scene.add(trafficRenderer.group);
 scene.add(terrain.group);
 
 // Distance-to-coast texture around the boat: calms the waves in the shallows and draws surf.
@@ -109,7 +115,8 @@ scene.add(water.mesh);
 
 const boat = new Boat();
 // Land, plus piers, pontoons, breakwaters and moored boats of nearby harbours.
-boat.landDistance = (x, z) => Math.max(coastline.signedDistance(x, z, 100), harbors.obstacleDistance(x, z));
+boat.landDistance = (x, z) =>
+  Math.max(coastline.signedDistance(x, z, 100), harbors.obstacleDistance(x, z), traffic.obstacleDistance(x, z));
 scene.add(boat.object);
 
 /** Back to the Godot start position, on a beam reach so the boat gets going right away. */
@@ -144,10 +151,12 @@ scene.add(coastLines.object);
 
 const rig = new CameraRig(camera, renderer.domElement);
 const hud = new Hud(app);
-const minimap = new Minimap(app, coastline, harborData);
+const minimap = new Minimap(app, coastline, harborData, () => traffic.vessels);
 const fps = new FpsCounter(app);
 const touch = new TouchControls(renderer.domElement, () => boat.helm.position, rig);
 const touchUi = new TouchUi(app, input, () => rig.nextModeKey());
+const BASE = import.meta.env.BASE_URL;
+const seaSound = new SeaSound({ ogg: `${BASE}sounds/sealoop.ogg`, m4a: `${BASE}sounds/sealoop.m4a` });
 
 // Debug / tuning panel (press G to toggle).
 const gui = new GUI({ title: 'Tuning' });
@@ -191,6 +200,12 @@ perfFolder.add(governor.settings, 'fpsCap', { unlimited: 0, '30 fps': 30, '60 fp
 perfFolder.add(governor.settings, 'maxPixelRatio', 0.75, 3, 0.25).name('max pixel ratio');
 perfFolder.add(governor.settings, 'adaptive').name('adaptive resolution');
 perfFolder.add(governor, 'pixelRatio').name('pixel ratio now').listen().disable();
+const trafficFolder = gui.addFolder('Traffic');
+trafficFolder.add(traffic, 'density', 0, 3, 0.1);
+trafficFolder.add({ get vessels() { return traffic.vessels.length; } }, 'vessels').listen().disable();
+const soundFolder = gui.addFolder('Sound');
+soundFolder.add(seaSound, 'volume', 0, 2, 0.05);
+soundFolder.add(seaSound, 'muted').name('muted (V)').listen();
 const debugFolder = gui.addFolder('Debug');
 debugFolder.add(coastLines.object, 'visible').name('coastline lines (C)').listen();
 
@@ -212,6 +227,7 @@ renderer.setAnimationLoop((timestamp) => {
   if (input.wasPressed('KeyG')) gui.show((guiVisible = !guiVisible));
   if (input.wasPressed('KeyC')) coastLines.object.visible = !coastLines.object.visible;
   if (input.wasPressed('KeyM')) minimap.zoom();
+  if (input.wasPressed('KeyV')) seaSound.toggleMute();
   if (input.wasPressed('KeyR')) {
     clearSavedBoat();
     resetBoat();
@@ -221,6 +237,7 @@ renderer.setAnimationLoop((timestamp) => {
   // Sea state follows the wind: calm below ~3 m/s, fully developed around 15 m/s.
   const seaState = THREE.MathUtils.clamp(wind.speed / 15, 0.15, 1);
   waves.amplitude += (waveTuning.scale * seaState - waves.amplitude) * (1 - Math.exp(-0.2 * dt));
+  seaSound.update(seaState, camera.position.y);
   boat.update(dt, time, input, wind, waves, touch.steer);
   const fwd = boat.forward();
   wake.update(boat.position.x - fwd.x * 4.8, boat.position.z - fwd.z * 4.8, boat.state.speed);
@@ -233,9 +250,11 @@ renderer.setAnimationLoop((timestamp) => {
   shoreMap.update(boat.position.x, boat.position.z);
   coastLines.update(boat.position.x, boat.position.z);
   harbors.update(dt, time, boat.position.x, boat.position.z);
+  traffic.update(dt, boat.position.x, boat.position.z, wind.direction, wind.speed);
+  trafficRenderer.update(traffic.vessels, waves, time, dt, boat.position.x, boat.position.z);
   minimap.update(dt, boat.position.x, boat.position.z, boat.state.heading);
   const geo = projection.toGeo(boat.position.x, boat.position.z);
-  touchUi.update(boat.helm.wheelAngle, boat.sailUp, rig.mode !== 'deck');
+  touchUi.update(boat.helm.wheelAngle, boat.sailUp, rig.mode !== 'deck', seaSound.muted);
   hud.update(boat, wind, {
     lat: geo.lat,
     lon: geo.lon,
@@ -250,4 +269,4 @@ renderer.setAnimationLoop((timestamp) => {
 });
 
 // Dev-only handle for poking at the scene from the browser console.
-if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData } });
+if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, seaSound, traffic, trafficRenderer } });

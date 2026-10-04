@@ -66,7 +66,7 @@ export class Hud {
       </svg>
       <div class="hud-help">
         <b>←/→</b> or <b>A/D</b> steer · <b>S</b> sail up/down · <b>T</b> turbo ·
-        <b>1</b> chase · <b>2</b> deck · <b>3</b> top · <b>M</b> map range · <b>R</b> back to start · <b>G</b> tuning
+        <b>1</b> chase · <b>2</b> deck · <b>3</b> top · <b>M</b> map range · <b>V</b> sound · <b>R</b> back to start · <b>G</b> tuning
       </div>`;
     parent.appendChild(el);
     const q = <T extends Element>(sel: string) => el.querySelector(sel) as T;

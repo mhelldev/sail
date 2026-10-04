@@ -36,7 +36,7 @@ function ridge(): THREE.BufferGeometry {
 }
 
 /** Small boat hull seen from above: pointed bow at +Z, flat transom at -Z. */
-function hull(): THREE.BufferGeometry {
+export function hull(): THREE.BufferGeometry {
   const shape = new THREE.Shape();
   shape.moveTo(-0.38, -0.5);
   shape.lineTo(0.38, -0.5);
@@ -80,7 +80,7 @@ const WINDOWED = new Set<PartType>(['house', 'tower']);
  * Building material: draws window panes on the walls procedurally from each instance's size,
  * so every house gets windows on every storey without any extra geometry.
  */
-function buildingMaterial(): THREE.MeshStandardMaterial {
+export function buildingMaterial(): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({ roughness: 0.85, flatShading: true });
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader

@@ -1,5 +1,6 @@
 import type { Coastline } from '../geo/coastline';
 import type { HarborData } from '../harbors/harborData';
+import type { Vessel } from '../traffic/vessel';
 
 const SIZE = 180; // CSS pixels
 const RES = 120; // land samples per side
@@ -24,6 +25,7 @@ export class Minimap {
     parent: HTMLElement,
     private readonly coast: Coastline,
     private readonly harbors?: HarborData,
+    private readonly vessels?: () => Vessel[],
   ) {
     const wrap = document.createElement('div');
     wrap.className = 'minimap';
@@ -72,6 +74,7 @@ export class Minimap {
       SIZE,
     );
     this.drawHarbors(x, z, range, scale);
+    this.drawVessels(x, z, range, scale);
     ctx.restore();
 
     ctx.save();
@@ -95,6 +98,31 @@ export class Minimap {
     ctx.textAlign = 'center';
     ctx.fillText('N', half, 13);
     this.label.textContent = range >= 1000 ? `${(range / 1000).toLocaleString('en')} km` : `${range} m`;
+  }
+
+  /** Other vessels as small arrows in the direction they're heading. */
+  private drawVessels(x: number, z: number, range: number, scale: number): void {
+    if (!this.vessels || range > 40000) return;
+    const ctx = this.ctx;
+    const half = SIZE / 2;
+    const COLORS = { yacht: '#ffffff', motor: '#ffb703', ferry: '#8ecae6', cargo: '#ff6b6b' };
+    for (const v of this.vessels()) {
+      const sx = half + (v.x - x) * scale;
+      const sy = half + (v.z - z) * scale;
+      if (Math.hypot(sx - half, sy - half) > half) continue;
+      const size = v.kind === 'cargo' || v.kind === 'ferry' ? 4 : 2.6;
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate((v.heading * Math.PI) / 180);
+      ctx.fillStyle = COLORS[v.kind];
+      ctx.beginPath();
+      ctx.moveTo(0, -size);
+      ctx.lineTo(size * 0.7, size);
+      ctx.lineTo(-size * 0.7, size);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
   /** Lighthouses as small yellow dots, harbours as anchors-ish markers, names when zoomed in. */
