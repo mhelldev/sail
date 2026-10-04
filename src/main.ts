@@ -283,7 +283,7 @@ walk.clickables.push(
   traffic.update(dt, me.x, me.z, wind.direction, wind.speed);
   trafficRenderer.update(traffic.vessels, waves, time, dt, me.x, me.z);
   const geo = projection.toGeo(boat.position.x, boat.position.z);
-  touchUi.update(boat.sailUp, seaSound.muted);
+  touchUi.update(boat.sailUp, seaSound.muted, walk.stick);
   instruments.update(
     dt,
     boat,

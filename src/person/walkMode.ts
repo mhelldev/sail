@@ -26,7 +26,8 @@ const GRAB_RADIUS = 0.6; // a little beyond the rim, so it's easy to hit
 // The hand on the wheel moves faster than the mouse: ¾ turn each way would otherwise need very
 // long drags (a finger on a touch screen holds the rim directly).
 const MOUSE_HAND = 2.5;
-const JOYSTICK = 60; // px of finger travel for full walking speed
+/** px of finger travel for full walking speed (the on-screen stick's radius) */
+export const JOYSTICK = 60;
 
 /** Something on the boat that reacts to a click or tap. */
 export interface Clickable {
@@ -121,8 +122,10 @@ export class WalkMode {
       // Touch: the wheel first, then walking on the left half, looking on the right half.
       const x = (e.clientX / window.innerWidth) * 2 - 1;
       const y = -(e.clientY / window.innerHeight) * 2 + 1;
-      if (!this.grab && this.tryGrab(e.pointerId, x, y)) return;
-      if (this.click(x, y)) return;
+      // The stick's resting spot (bottom left) always walks, even with the wheel's rim behind it.
+      const onStick = e.clientX < 24 + JOYSTICK * 2 + 40 && e.clientY > window.innerHeight - (28 + JOYSTICK * 2 + 40);
+      if (!onStick && !this.grab && this.tryGrab(e.pointerId, x, y)) return;
+      if (!onStick && this.click(x, y)) return;
       if (e.clientX < window.innerWidth / 2) {
         if (!this.joystick) this.joystick = { pointer: e.pointerId, x: e.clientX, y: e.clientY, forward: 0, right: 0 };
       } else if (!this.lookFinger) {
@@ -153,6 +156,11 @@ export class WalkMode {
     window.addEventListener('pointerup', release);
     window.addEventListener('pointercancel', release);
     dom.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  /** The walking stick while a finger holds it: where it was put down (px) and the deflection (-1…1). */
+  get stick(): { x: number; y: number; right: number; forward: number } | null {
+    return this.joystick;
   }
 
   /** Puts the person behind the wheel, facing forward like the helmsman. */

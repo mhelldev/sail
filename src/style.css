@@ -98,19 +98,73 @@ body.touch .lil-gui.lil-root {
   display: none;
 }
 
-/* Bottom centre in a row: the left half of the screen is the walking joystick. */
+/* Walking stick: rests at the bottom left, jumps to wherever the thumb lands on the left half. */
+.touch-stick {
+  --r: 60px;
+  position: fixed;
+  left: calc(24px + var(--r) + env(safe-area-inset-left));
+  top: calc(100% - 28px - var(--r) - env(safe-area-inset-bottom));
+  width: calc(var(--r) * 2);
+  height: calc(var(--r) * 2);
+  margin: calc(var(--r) * -1) 0 0 calc(var(--r) * -1);
+  border-radius: 50%;
+  background: rgb(8 28 40 / 0.25);
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.35);
+  pointer-events: none;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.touch-stick-active {
+  opacity: 1;
+}
+
+.touch-stick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 54px;
+  margin: -27px 0 0 -27px;
+  border-radius: 50%;
+  background: rgb(244 247 249 / 0.55);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.3);
+}
+
+.touch-jump {
+  position: fixed;
+  right: calc(24px + env(safe-area-inset-right));
+  bottom: calc(28px + env(safe-area-inset-bottom));
+  width: 84px;
+  height: 84px;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(8 28 40 / 0.55);
+  backdrop-filter: blur(6px);
+  color: #f4f7f9;
+  font: 700 15px system-ui, -apple-system, sans-serif;
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.35);
+  touch-action: none;
+}
+
+.touch-jump:active {
+  background: rgb(8 28 40 / 0.85);
+}
+
+/* A column on the right, above the jump button (the left half belongs to the walking stick). */
 .touch-buttons {
   position: fixed;
-  left: 50%;
-  bottom: calc(14px + env(safe-area-inset-bottom));
-  transform: translateX(-50%);
+  right: calc(24px + env(safe-area-inset-right));
+  bottom: calc(126px + env(safe-area-inset-bottom));
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
 }
 
 .touch-buttons button {
-  min-width: 72px;
-  min-height: 44px;
+  min-width: 84px;
+  min-height: 40px;
   padding: 0 14px;
   border: 0;
   border-radius: 22px;
@@ -129,7 +183,7 @@ body.touch .lil-gui.lil-root {
 .touch-hint {
   position: fixed;
   left: 50%;
-  bottom: calc(76px + env(safe-area-inset-bottom));
+  top: calc(16px + env(safe-area-inset-top));
   transform: translateX(-50%);
   max-width: calc(100vw - 32px);
   padding: 8px 14px;

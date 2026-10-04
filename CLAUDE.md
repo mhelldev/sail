@@ -57,8 +57,10 @@ any more apart from the crosshair and the key help line: the instruments are a s
 - Steering: with the wheel under the crosshair (within ~2.6 m) click and drag; the crosshair turns into a ring
   when it can be grabbed. The mouse moves a virtual hand (2.5× gain) that is raycast onto the wheel plane in the
   boat's frame; the angle turned around the axle sets the helm. Let go, the wheel stays put (no self-centering).
-- Touch (`ui/touchUi.ts` buttons Jump/Sail/Aboard/Sound, drags handled in `person/walkMode.ts`): a finger on the
-  wheel turns it directly, left half = walking joystick, right half = look, tap door/plotter.
+- Touch: a virtual game pad (`ui/touchUi.ts` draws it, `person/walkMode.ts` handles the drags). Walking stick
+  bottom left (it moves to wherever the thumb lands on the left half; full deflection runs; its resting spot
+  always walks, even with the wheel's rim behind it), round Jump button bottom right (fires on touch-down),
+  Sail/Aboard/Sound above it. Elsewhere a finger on the wheel turns it, right half = look, tap door/plotter.
   `body.touch` switches the touch UI on.
 - `boat/helm.ts` still supports self-centering key steering (used by tests); the game only grips it by hand.
 
