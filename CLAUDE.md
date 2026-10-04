@@ -15,6 +15,9 @@ project at `/Users/michael/projects/godot/boat3d`.
 - `npm run dev` — dev server
 - `npm test` — Vitest unit tests (pure logic: sailing, collision, waves, shore map, geo, terrain)
 - `npm run typecheck` / `npm run build`
+- `npm run harbors` — re-bake `public/data/harbors.json` (committed) from Overpass: named marinas/harbours and
+  lighthouses, snapped to our coast. Raw downloads are cached in `data/harbors-raw/` (gitignored); delete it to
+  fetch fresh data. The game itself never queries anything.
 - `npm run geo` — regenerate `public/data/coast.json` from `boat3d/europe.geo.json` (read-only input)
 
 ## Conventions
@@ -65,6 +68,20 @@ project at `/Users/michael/projects/godot/boat3d`.
    distance-to-coast texture around the boat → waves calm in the shallows (same damping on CPU via
    `shoreDamping`), turquoise shallows and surf foam. Boat position/heading/sail saved in localStorage
    (`core/save.ts`, R resets to start).
+
+## Harbours, villages, lighthouses (`src/harbors/`)
+
+- `harborData.ts`: baked list in world space + coarse grid. Entries were snapped to the Natural Earth coast at bake
+  time (≤ 3 km, else dropped) with a seaward direction from the coastline; duplicates within 1 km merged.
+- `village.ts`: pure, deterministic generator per harbour (pier, pontoons, moored boats, breakwaters with red/green
+  lights, quay houses, streets, church, windmill, trees). Returns parts + water obstacles; tested on a fake coast.
+- `harborRenderer.ts`: one `InstancedMesh` per part type for all villages within 8 km (dropped beyond 10 km),
+  built one village per ~80 ms; buffers are only rewritten when the set changes. Windows are drawn by the
+  building shader. Lighthouse beams/mill sails are the only per-frame updates. Measured GPU cost ≈ 0.2 ms.
+- Terrain is flattened around villages/lighthouses (`terrain/flatten.ts`) in both workers and main thread;
+  `groundFor()` in `main.ts` is the main-thread copy of the worker's ground for placing houses.
+- Boat collision uses `max(coast distance, harbour obstacle distance)`.
+- GPU timing is noisy (clock changes): compare with/without by alternating several batches and using medians.
 
 ## Ideas for later
 

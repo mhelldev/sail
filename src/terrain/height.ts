@@ -3,6 +3,7 @@
 
 import alea from 'alea';
 import { createNoise2D, type NoiseFunction2D } from 'simplex-noise';
+import { FlattenSites } from './flatten';
 
 export interface TerrainParams {
   seed: number;
@@ -59,7 +60,11 @@ export interface TerrainSampler {
   color(h: number, ny: number, x: number, z: number, out: Float32Array, offset: number): void;
 }
 
-export function createTerrainSampler(params: TerrainParams): TerrainSampler {
+/**
+ * @param flatten harbour villages and lighthouses: hills and mountains are pulled down to a low
+ *   plain there, so buildings stand on flat ground
+ */
+export function createTerrainSampler(params: TerrainParams, flatten = new FlattenSites()): TerrainSampler {
   const rng = alea(params.seed);
   const ridgeNoise = createNoise2D(rng);
   const warpNoiseX = createNoise2D(rng);
@@ -133,7 +138,12 @@ export function createTerrainSampler(params: TerrainParams): TerrainSampler {
 
       const beach = SHORE_BANK + Math.min(sd * beachSlope, 3);
       const inland = smoothstep(0, coastFalloff, sd);
-      return beach + inland * (hills + mountains);
+      const relief = inland * (hills + mountains);
+      const flat = flatten.weight(x, z);
+      if (flat === 0) return beach + relief;
+      // Around villages: a low plain with a little undulation instead of hills and mountains.
+      const plain = inland * (detailNoise(x / 400, z / 400) * 0.5 + 0.5) * 2;
+      return beach + relief * (1 - flat) + plain * flat;
     },
 
     color(h, ny, x, z, out, o) {

@@ -9,8 +9,12 @@ import { TouchControls } from './core/touchControls';
 import { clearSavedBoat, loadBoat, saveBoat } from './core/save';
 import { CoastLines } from './geo/coastLines';
 import { Coastline, type CoastData } from './geo/coastline';
+import { HarborData } from './harbors/harborData';
+import { HarborRenderer } from './harbors/harborRenderer';
+import type { Ground } from './harbors/village';
+import { FlattenSites } from './terrain/flatten';
 import { LocalProjection } from './geo/projection';
-import { DEFAULT_TERRAIN } from './terrain/height';
+import { createTerrainSampler, DEFAULT_TERRAIN, type TerrainParams } from './terrain/height';
 import { TerrainManager } from './terrain/terrainManager';
 import { FpsCounter } from './ui/fps';
 import { Hud } from './ui/hud';
@@ -37,8 +41,13 @@ app.appendChild(loading);
 
 const projection = new LocalProjection(START.lat, START.lon);
 const COAST_URL = `${import.meta.env.BASE_URL}data/coast.json`;
-const coastData = (await fetch(COAST_URL).then((r) => r.json())) as CoastData;
+const HARBORS_URL = `${import.meta.env.BASE_URL}data/harbors.json`;
+const [coastData, harborData] = await Promise.all([
+  fetch(COAST_URL).then((r) => r.json()) as Promise<CoastData>,
+  HarborData.load(HARBORS_URL, projection),
+]);
 const coastline = Coastline.fromData(coastData, projection);
+const flattenSites = new FlattenSites(harborData.flattenSites());
 loading.remove();
 
 // Reversed depth keeps precision at long range (water vs. seabed 10 km away). Fall back to a
@@ -69,7 +78,24 @@ const input = new Input();
 const wind = new Wind();
 
 const terrainParams = { ...DEFAULT_TERRAIN };
-const terrain = new TerrainManager(new URL(COAST_URL, location.href).href, START, terrainParams);
+const terrain = new TerrainManager(
+  new URL(COAST_URL, location.href).href,
+  new URL(HARBORS_URL, location.href).href,
+  START,
+  terrainParams,
+);
+
+/** The same ground the terrain workers build, for placing village houses on it. */
+function groundFor(params: TerrainParams): Ground {
+  const sampler = createTerrainSampler(params, flattenSites);
+  const reach = Math.max(params.coastFalloff, 200);
+  return {
+    sd: (x, z) => coastline.signedDistance(x, z, 500),
+    height: (x, z) => sampler.height(coastline.signedDistance(x, z, reach), x, z),
+  };
+}
+const harbors = new HarborRenderer(harborData, groundFor(terrainParams));
+scene.add(harbors.group);
 scene.add(terrain.group);
 
 // Distance-to-coast texture around the boat: calms the waves in the shallows and draws surf.
@@ -82,7 +108,8 @@ const water = new Water(waves, shoreMap, wakeMap);
 scene.add(water.mesh);
 
 const boat = new Boat();
-boat.landDistance = (x, z) => coastline.signedDistance(x, z, 100);
+// Land, plus piers, pontoons, breakwaters and moored boats of nearby harbours.
+boat.landDistance = (x, z) => Math.max(coastline.signedDistance(x, z, 100), harbors.obstacleDistance(x, z));
 scene.add(boat.object);
 
 /** Back to the Godot start position, on a beam reach so the boat gets going right away. */
@@ -117,7 +144,7 @@ scene.add(coastLines.object);
 
 const rig = new CameraRig(camera, renderer.domElement);
 const hud = new Hud(app);
-const minimap = new Minimap(app, coastline);
+const minimap = new Minimap(app, coastline, harborData);
 const fps = new FpsCounter(app);
 const touch = new TouchControls(renderer.domElement, () => boat.helm.position, rig);
 const touchUi = new TouchUi(app, input, () => rig.nextModeKey());
@@ -141,7 +168,10 @@ boatFolder.add(SAILING, 'maxSpeed', 2, 40, 0.5);
 boatFolder.add(SAILING, 'turnRate', 0.05, 1.5, 0.01);
 boatFolder.add(SAILING, 'maxHeel', 0, 40, 1);
 const terrainFolder = gui.addFolder('Terrain');
-const regenerate = () => terrain.setParams({ ...terrainParams });
+const regenerate = () => {
+  terrain.setParams({ ...terrainParams });
+  harbors.setGround(groundFor({ ...terrainParams }));
+};
 terrainFolder.add(terrainParams, 'seed', 1, 1000, 1).onFinishChange(regenerate);
 terrainFolder.add(terrainParams, 'mountainHeight', 0, 1500, 10).name('mountain height').onFinishChange(regenerate);
 terrainFolder.add(terrainParams, 'mountainCoverage', 0, 1, 0.01).name('mountain coverage').onFinishChange(regenerate);
@@ -202,6 +232,7 @@ renderer.setAnimationLoop((timestamp) => {
   terrain.update(boat.position.x, boat.position.z);
   shoreMap.update(boat.position.x, boat.position.z);
   coastLines.update(boat.position.x, boat.position.z);
+  harbors.update(dt, time, boat.position.x, boat.position.z);
   minimap.update(dt, boat.position.x, boat.position.z, boat.state.heading);
   const geo = projection.toGeo(boat.position.x, boat.position.z);
   touchUi.update(boat.helm.wheelAngle, boat.sailUp, rig.mode !== 'deck');
@@ -211,6 +242,7 @@ renderer.setAnimationLoop((timestamp) => {
     coastDistance: coastline.signedDistance(boat.position.x, boat.position.z, COAST_QUERY_RANGE),
     maxDistance: COAST_QUERY_RANGE,
     grounded: boat.grounded,
+    nearestHarbor: harborData.nearestHarbor(boat.position.x, boat.position.z, 50000),
   });
 
   renderer.render(scene, camera);
@@ -218,4 +250,4 @@ renderer.setAnimationLoop((timestamp) => {
 });
 
 // Dev-only handle for poking at the scene from the browser console.
-if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection, terrain, shoreMap, wake, wakeMap } });
+if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, rig, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData } });

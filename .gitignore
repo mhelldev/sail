@@ -2,3 +2,6 @@ node_modules
 dist
 .DS_Store
 *.local
+
+# raw downloads for the bake scripts (npm run harbors)
+/data/

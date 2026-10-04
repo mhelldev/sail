@@ -53,12 +53,12 @@ export class TerrainManager {
   private readonly lastPlan = new THREE.Vector2(Infinity, Infinity);
   private readonly shoreRequests = new Map<number, (data: Uint8Array) => void>();
 
-  constructor(coastUrl: string, origin: { lat: number; lon: number }, params: TerrainParams) {
+  constructor(coastUrl: string, harborsUrl: string, origin: { lat: number; lon: number }, params: TerrainParams) {
     const count = Math.max(1, Math.min(4, (navigator.hardwareConcurrency ?? 4) - 1));
     for (let i = 0; i < count; i++) {
       const worker = new Worker(new URL('./terrain.worker.ts', import.meta.url), { type: 'module' });
       worker.onmessage = (e: MessageEvent<WorkerResponse>) => this.onMessage(i, e.data);
-      worker.postMessage({ type: 'init', coastUrl, origin, params } satisfies WorkerRequest);
+      worker.postMessage({ type: 'init', coastUrl, harborsUrl, origin, params } satisfies WorkerRequest);
       this.workers.push(worker);
       this.busy.push(0);
     }
@@ -156,6 +156,10 @@ export class TerrainManager {
   }
 
   private onMessage(worker: number, msg: WorkerResponse): void {
+    if (msg.type === 'error') {
+      console.error(`terrain worker ${worker}:`, msg.message);
+      return;
+    }
     if (msg.type === 'shore') {
       this.shoreRequests.get(msg.id)?.(msg.data);
       this.shoreRequests.delete(msg.id);

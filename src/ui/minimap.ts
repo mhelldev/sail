@@ -1,4 +1,5 @@
 import type { Coastline } from '../geo/coastline';
+import type { HarborData } from '../harbors/harborData';
 
 const SIZE = 180; // CSS pixels
 const RES = 120; // land samples per side
@@ -20,6 +21,7 @@ export class Minimap {
   constructor(
     parent: HTMLElement,
     private readonly coast: Coastline,
+    private readonly harbors?: HarborData,
   ) {
     const wrap = document.createElement('div');
     wrap.className = 'minimap';
@@ -67,6 +69,7 @@ export class Minimap {
       SIZE,
       SIZE,
     );
+    this.drawHarbors(x, z, range, scale);
     ctx.restore();
 
     ctx.save();
@@ -90,6 +93,55 @@ export class Minimap {
     ctx.textAlign = 'center';
     ctx.fillText('N', half, 13);
     this.label.textContent = `${range >= 1000 ? range / 1000 + ' km' : range + ' m'}`;
+  }
+
+  /** Lighthouses as small yellow dots, harbours as anchors-ish markers, names when zoomed in. */
+  private drawHarbors(x: number, z: number, range: number, scale: number): void {
+    if (!this.harbors) return;
+    const ctx = this.ctx;
+    const half = SIZE / 2;
+    const toScreen = (px: number, pz: number) => [half + (px - x) * scale, half + (pz - z) * scale];
+    const r = range * 1.42;
+    ctx.fillStyle = '#ffd166';
+    for (const l of this.harbors.lighthouses.near(x, z, r)) {
+      const [sx, sy] = toScreen(l.x, l.z);
+      ctx.beginPath();
+      ctx.arc(sx, sy, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const near = this.harbors.harbors
+      .near(x, z, r)
+      .sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z));
+    ctx.lineWidth = 1.2;
+    for (const h of near) {
+      const [sx, sy] = toScreen(h.x, h.z);
+      ctx.fillStyle = h.isHarbour ? '#ffffff' : '#bfe3ff';
+      ctx.strokeStyle = '#0b1d2a';
+      ctx.beginPath();
+      ctx.arc(sx, sy, h.isHarbour ? 3.4 : 2.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    // Names only when zoomed in: closest first, skipping any that would overlap one already drawn.
+    if (range > 15000) return;
+    ctx.font = '600 9px system-ui, sans-serif';
+    const placed: Array<[number, number, number, number]> = [];
+    for (const h of near.slice(0, 8)) {
+      const [sx, sy] = toScreen(h.x, h.z);
+      const w = ctx.measureText(h.name).width;
+      // Labels to the right of the marker, or to the left near the right edge; always inside the map.
+      const left = sx + 5 + w > SIZE - 12;
+      const x0 = Math.min(SIZE - 10 - w, Math.max(10, left ? sx - 5 - w : sx + 5));
+      const box: [number, number, number, number] = [x0 - 1, sy - 7, x0 + w + 1, sy + 4];
+      if (placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) continue;
+      placed.push(box);
+      ctx.textAlign = 'left';
+      ctx.lineWidth = 2.5;
+      ctx.strokeText(h.name, x0, sy + 3);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(h.name, x0, sy + 3);
+      if (placed.length >= 4) break;
+    }
   }
 
   private drawLand(x: number, z: number, range: number): void {

@@ -1,4 +1,5 @@
 import type { Boat } from '../boat/boat';
+import type { Harbor } from '../harbors/harborData';
 import { polarFactor, relativeWind, windAngle } from '../boat/sailing';
 import type { Wind } from '../weather/wind';
 
@@ -14,6 +15,7 @@ export interface NavInfo {
   coastDistance: number;
   maxDistance: number;
   grounded: boolean;
+  nearestHarbor?: { harbor: Harbor; distance: number };
 }
 
 function formatCoord(v: number, pos: string, neg: string): string {
@@ -41,6 +43,7 @@ export class Hud {
   private readonly efficiency: HTMLElement;
   private readonly pos: HTMLElement;
   private readonly coast: HTMLElement;
+  private readonly harbor: HTMLElement;
 
   constructor(parent: HTMLElement) {
     const el = document.createElement('div');
@@ -53,6 +56,7 @@ export class Hud {
         <div class="hud-row" data-sail></div>
         <div class="hud-row hud-nav" data-pos></div>
         <div class="hud-row hud-nav" data-coast></div>
+        <div class="hud-row hud-nav" data-harbor></div>
         <div class="hud-bar"><div data-eff></div></div>
       </div>
       <svg class="hud-wind" viewBox="-50 -50 100 100" aria-label="Relative wind">
@@ -74,6 +78,7 @@ export class Hud {
     this.efficiency = q('[data-eff]');
     this.pos = q('[data-pos]');
     this.coast = q('[data-coast]');
+    this.harbor = q('[data-harbor]');
   }
 
   update(boat: Boat, wind: Wind, nav?: NavInfo): void {
@@ -83,6 +88,10 @@ export class Hud {
       const dist = d >= nav.maxDistance ? `> ${nav.maxDistance / 1000} km` : d >= 1000 ? `${(d / 1000).toFixed(1)} km` : `${Math.round(d)} m`;
       this.coast.textContent = nav.grounded ? 'AGROUND · turn away from the shore' : `Coast ${dist}`;
       this.coast.classList.toggle('hud-warn', nav.grounded || nav.coastDistance > -100);
+      const h = nav.nearestHarbor;
+      this.harbor.textContent = h
+        ? `⚓ ${h.harbor.name} · ${h.distance >= 1000 ? `${(h.distance / 1000).toFixed(1)} km` : `${Math.round(h.distance)} m`}`
+        : '';
     }
     const { heading, speed } = boat.state;
     const angle = windAngle(heading, wind.direction);
