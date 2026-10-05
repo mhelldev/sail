@@ -93,6 +93,7 @@ export class Boat {
       -this.helm.wheelAngle,
       this.sailUp,
       dt,
+      wind.speed,
     );
   }
 

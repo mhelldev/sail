@@ -1,8 +1,10 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { lightPointsMaterial, NIGHT } from '../world/night';
+import { addCabinProps } from './cabinProps';
+import { Parts, type Rect } from './parts';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
-  BENCH, CABIN, COCKPIT, DOOR, HALF_BEAM, HELM, LENGTH, MAST_TOP, MAST_Z, PANEL, RAIL, SETTEE, STAIRS, TABLE,
+  BENCH, CABIN, COCKPIT, DOOR, FRONT_WINDOWS, HALF_BEAM, HELM, LENGTH, MAST_TOP, MAST_Z, PANEL, RAIL, SETTEE, SIDE_WINDOW, STAIRS, TABLE,
   deckY, halfWidth, keelY, stationT, stationZ,
 } from './layout';
 
@@ -143,46 +145,6 @@ function createDeck(): THREE.BufferGeometry {
   return geo;
 }
 
-/** Collects static parts per material and merges them into one mesh each (few draw calls). */
-class Parts {
-  private readonly geos = new Map<THREE.Material, THREE.BufferGeometry[]>();
-
-  /** Axis-aligned box from (x0, y0, z0) to (x1, y1, z1). */
-  box(mat: THREE.Material, x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): void {
-    const g = new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0).translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
-    this.add(mat, g);
-  }
-
-  /** Box mirrored to both sides (x0, x1 on the starboard side). */
-  pair(mat: THREE.Material, x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): void {
-    this.box(mat, x0, x1, y0, y1, z0, z1);
-    this.box(mat, -x1, -x0, y0, y1, z0, z1);
-  }
-
-  /** Round bar from a to b. */
-  rod(mat: THREE.Material, a: THREE.Vector3, b: THREE.Vector3, r: number): void {
-    const dir = b.clone().sub(a);
-    const g = new THREE.CylinderGeometry(r, r, dir.length(), 6, 1, true);
-    g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize()));
-    g.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
-    this.add(mat, g.toNonIndexed());
-  }
-
-  add(mat: THREE.Material, g: THREE.BufferGeometry): void {
-    const list = this.geos.get(mat) ?? [];
-    // mergeGeometries needs all indexed or all not; keep everything non-indexed with normals + uvs.
-    list.push(g.index ? g.toNonIndexed() : g);
-    this.geos.set(mat, list);
-  }
-
-  build(parent: THREE.Object3D): void {
-    for (const [mat, list] of this.geos) {
-      for (const g of list) for (const name of Object.keys(g.attributes)) if (name !== 'position' && name !== 'normal') g.deleteAttribute(name);
-      parent.add(new THREE.Mesh(mergeGeometries(list), mat));
-    }
-  }
-}
-
 /**
  * Triangular sail lying in the local YZ plane with its tack at the origin.
  * The belly bulges towards +X; mirror with scale.x to put it on the other side.
@@ -256,8 +218,12 @@ export class BoatModel {
   private sailAmount = 1;
   private readonly glass: THREE.MeshStandardMaterial;
   private readonly interior: THREE.MeshStandardMaterial[];
+  private readonly interiorBase = new Map<THREE.MeshStandardMaterial, number>();
   private readonly lamp: THREE.MeshBasicMaterial;
   private readonly navLights: THREE.Points;
+  private readonly panes: THREE.Mesh;
+  /** clock and barometer in the cabin */
+  private readonly updateProps: (dt: number, windSpeed: number) => void;
   private bellySide = 1;
 
   constructor() {
@@ -294,22 +260,44 @@ export class BoatModel {
     const T = 0.05; // wall thickness
     const L = 0.015; // lining
     const front = deckAt(C.front);
-    parts.pair(gelcoat, C.halfWidth, C.halfWidth + T, deckAt(C.back) - 0.05, C.roofTop, C.front - T, C.back + T); // sides
-    parts.box(gelcoat, -C.halfWidth - T, C.halfWidth + T, front - 0.05, C.roofTop, C.front - T, C.front); // front
+    // Side and front walls with real openings, so you can look out of the cabin (and into it).
+    const sideWin: Rect = { u0: SIDE_WINDOW.z0, u1: SIDE_WINDOW.z1, v0: SIDE_WINDOW.y0, v1: SIDE_WINDOW.y1 };
+    const fronts: Rect[] = FRONT_WINDOWS.map((w) => ({ u0: w.x0, u1: w.x1, v0: w.y0, v1: w.y1 }));
+    for (const sgn of [-1, 1]) {
+      const [a, b] = sgn > 0 ? [C.halfWidth, C.halfWidth + T] : [-C.halfWidth - T, -C.halfWidth];
+      parts.wall(gelcoat, 'x', a, b, C.front - T, C.back + T, deckAt(C.back) - 0.05, C.roofTop, [sideWin]);
+      const [la, lb] = sgn > 0 ? [C.halfWidth - L, C.halfWidth] : [-C.halfWidth, -C.halfWidth + L];
+      parts.wall(lining, 'x', la, lb, C.front, C.back, C.floor, C.roofBottom, [sideWin]);
+    }
+    parts.wall(gelcoat, 'z', C.front - T, C.front, -C.halfWidth - T, C.halfWidth + T, front - 0.05, C.roofTop, fronts);
+    parts.wall(lining, 'z', C.front, C.front + L, -C.halfWidth, C.halfWidth, C.floor, C.roofBottom, fronts);
+    // Panes (see-through) in dark frames.
+    const pane = (axis: 'x' | 'z', t: number, r: Rect) => {
+      const f = 0.025;
+      const [t0, t1] = axis === 'x' ? (t > 0 ? [C.halfWidth - L, C.halfWidth + T] : [-C.halfWidth - T, -C.halfWidth + L]) : [C.front - T, C.front + L];
+      parts.wall(dark, axis, t0, t1, r.u0, r.u1, r.v0, r.v1, [{ u0: r.u0 + f, u1: r.u1 - f, v0: r.v0 + f, v1: r.v1 - f }]);
+      const mid = (t0 + t1) / 2;
+      if (axis === 'x') windowPanes.push(new THREE.PlaneGeometry(r.u1 - r.u0, r.v1 - r.v0).rotateY(Math.PI / 2).translate(mid, (r.v0 + r.v1) / 2, (r.u0 + r.u1) / 2));
+      else windowPanes.push(new THREE.PlaneGeometry(r.u1 - r.u0, r.v1 - r.v0).translate((r.u0 + r.u1) / 2, (r.v0 + r.v1) / 2, mid));
+    };
+    const windowPanes: THREE.BufferGeometry[] = [];
+    pane('x', 1, sideWin);
+    pane('x', -1, sideWin);
+    for (const r of fronts) pane('z', 0, r);
+    const panes = new THREE.Mesh(
+      mergeGeometries(windowPanes),
+      new THREE.MeshStandardMaterial({ color: 0x9fc4d6, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    this.tilt.add(panes);
+    this.panes = panes;
     parts.pair(gelcoat, DOOR.halfWidth, C.halfWidth + T, COCKPIT.floor, C.roofTop, C.back, C.back + T); // aft, beside the door
     parts.box(gelcoat, -C.halfWidth - T, C.halfWidth + T, C.roofTop - 0.06, C.roofTop, C.front - T, DOOR.hatchFront); // roof
     parts.pair(gelcoat, DOOR.halfWidth, C.halfWidth + T, C.roofTop - 0.06, C.roofTop, DOOR.hatchFront, C.back + T);
-    parts.pair(lining, C.halfWidth - L, C.halfWidth, C.floor, C.roofBottom, C.front, C.back);
-    parts.box(lining, -C.halfWidth, C.halfWidth, C.floor, C.roofBottom, C.front, C.front + L);
     parts.pair(lining, DOOR.halfWidth, C.halfWidth, C.floor, C.roofBottom, C.back - L, C.back);
     parts.box(lining, -C.halfWidth, C.halfWidth, C.roofBottom, C.roofTop - 0.06, C.front, DOOR.hatchFront);
     parts.pair(lining, DOOR.halfWidth, C.halfWidth, C.roofBottom, C.roofTop - 0.06, DOOR.hatchFront, C.back);
-    // Windows, seen from outside and from inside.
-    for (const [x0, x1] of [[C.halfWidth + T, C.halfWidth + T + 0.01], [C.halfWidth - L - 0.01, C.halfWidth - L]]) {
-      parts.pair(glass, x0, x1, 1.68, 1.86, -2.4, -0.2);
-    }
 
-    // Cabin: floor, three steps down from the door, settees with backrests, a table, a lamp.
+    // Cabin: floor, three steps down from the door, settees with backrests, a table.
     parts.box(wood, -C.halfWidth, C.halfWidth, C.floor - 0.05, C.floor, C.front, C.back);
     for (const s of STAIRS) parts.box(wood, -DOOR.halfWidth, DOOR.halfWidth, C.floor, s.top, s.z0, s.z1);
     parts.box(wood, -DOOR.halfWidth, DOOR.halfWidth, C.floor, COCKPIT.floor, C.back, C.back + T); // riser under the threshold
@@ -318,7 +306,10 @@ export class BoatModel {
     parts.pair(cushion, SETTEE.outer - L - 0.1, SETTEE.outer - L, SETTEE.top, SETTEE.top + 0.42, SETTEE.z0, SETTEE.z1);
     parts.box(wood, -TABLE.halfWidth, TABLE.halfWidth, TABLE.top - 0.05, TABLE.top, TABLE.z0, TABLE.z1);
     parts.box(wood, -0.05, 0.05, C.floor, TABLE.top - 0.05, (TABLE.z0 + TABLE.z1) / 2 - 0.05, (TABLE.z0 + TABLE.z1) / 2 + 0.05);
-    parts.box(this.lamp, -0.12, 0.12, C.roofBottom - 0.04, C.roofBottom, -1.65, -1.55);
+    // Coffee, chart, books, clock… (and a lifebuoy outside).
+    const props = addCabinProps(this.tilt, parts, this.lamp);
+    this.interior.push(...props.materials);
+    this.updateProps = props.update;
 
     // Cockpit: lowered floor, side benches, coamings, and the wheel on its pedestal.
     const P = COCKPIT;
@@ -445,7 +436,8 @@ export class BoatModel {
     this.tilt.add(this.navLights);
 
     shadowed(this.root);
-    // The screen glows by itself and must not get shadow speckles.
+    // Glass lets the sun in. The screen glows by itself and must not get shadow speckles.
+    this.panes.castShadow = false;
     this.panel.castShadow = this.panel.receiveShadow = false;
   }
 
@@ -459,7 +451,9 @@ export class BoatModel {
    * @param relWindDeg wind relative to the bow (positive = from starboard)
    * @param wheelTurn wheel rotation around its axle in radians
    */
-  update(boomDeg: number, relWindDeg: number, wheelTurn: number, sailUp: boolean, dt: number): void {
+  /** @param windSpeed m/s, for the barometer in the cabin */
+  update(boomDeg: number, relWindDeg: number, wheelTurn: number, sailUp: boolean, dt: number, windSpeed = 0): void {
+    this.updateProps(dt, windSpeed);
     this.sailAmount += ((sailUp ? 1 : 0) - this.sailAmount) * (1 - Math.exp(-2.5 * dt));
     const furl = Math.max(0.02, this.sailAmount);
     const boom = THREE.MathUtils.degToRad(boomDeg);
@@ -490,7 +484,10 @@ export class BoatModel {
     (this.navLights.material as THREE.PointsMaterial).opacity = night;
     this.navLights.visible = night > 0.01;
     this.glass.emissiveIntensity = night * 1.4;
-    for (const m of this.interior) m.emissiveIntensity = 1 + night * 0.6;
+    for (const m of this.interior) {
+      if (!this.interiorBase.has(m)) this.interiorBase.set(m, m.emissiveIntensity);
+      m.emissiveIntensity = this.interiorBase.get(m)! * (1 + night * 0.6);
+    }
   }
 }
 

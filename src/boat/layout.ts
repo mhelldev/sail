@@ -28,6 +28,12 @@ export const stationT = (z: number): number => (z + LENGTH / 2) / LENGTH;
 
 /** Deckhouse and the cabin under it. */
 export const CABIN = { halfWidth: 1.3, front: -2.9, back: 1.3, floor: 0.1, roofBottom: 2.02, roofTop: 2.1 };
+/** Windows in the deckhouse: along each side (z range), and two in the front wall (x range). */
+export const SIDE_WINDOW = { z0: -2.45, z1: -0.45, y0: 1.5, y1: 1.88 };
+export const FRONT_WINDOWS = [
+  { x0: -1.0, x1: -0.4, y0: 1.6, y1: 1.88 },
+  { x0: 0.4, x1: 1.0, y0: 1.6, y1: 1.88 },
+];
 /** Companionway: a door in the deckhouse's aft wall plus a sliding roof hatch above the steps. */
 export const DOOR = { halfWidth: 0.4, hatchFront: 0.3, height: CABIN.roofTop - 0.75 };
 /** Three steps down from the cockpit into the cabin (z ranges, going forward). */
@@ -41,12 +47,12 @@ export const SETTEE = { inner: 0.75, outer: CABIN.halfWidth, z0: -2.7, z1: -0.3,
 export const TABLE = { halfWidth: 0.35, z0: -2.3, z1: -0.9, top: 0.85 };
 
 /** The cockpit well behind the deckhouse, lower than the deck. */
-export const COCKPIT = { halfWidth: 1.15, front: CABIN.back, back: 4.9, floor: 0.75 };
+export const COCKPIT = { halfWidth: 1.15, front: CABIN.back, back: 5.6, floor: 0.75 };
 export const BENCH = { inner: 0.7, outer: COCKPIT.halfWidth, z0: 1.5, z1: 3.4, top: 1.15 };
 /** Steering wheel: faces aft, spins around an axle along Z. */
 export const HELM = { z: 4.0, y: 1.55, radius: 0.5 };
 /** Where the helmsman stands. */
-export const HELM_STAND = { x: 0, z: 4.55 };
+export const HELM_STAND = { x: 0, z: COCKPIT.back - 0.3 }; // as far back as the body radius allows
 
 /** Instrument panel on the deckhouse's aft wall, starboard of the door. */
 export const PANEL = { x: 0.85, y: 1.72, width: 0.8, height: 0.56, z: CABIN.back + 0.065 };

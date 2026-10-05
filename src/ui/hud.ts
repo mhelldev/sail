@@ -21,6 +21,7 @@ export class Hud {
 
   /** Crosshair state: something can be grabbed / the wheel is held. */
   setHand(state: 'none' | 'open' | 'grip'): void {
-    this.crosshair.dataset.hand = state;
+    // Called every frame: only touch the DOM when the state actually changes.
+    if (this.crosshair.dataset.hand !== state) this.crosshair.dataset.hand = state;
   }
 }

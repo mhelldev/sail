@@ -123,11 +123,16 @@ any more apart from the crosshair and the key help line: the instruments are a s
 ## The yacht (`src/boat/`)
 
 - `layout.ts` is the single source for the boat's shape (pure): ~12 m hull lines, deckhouse with the cabin below
-  (floor just above the waterline, settees, table), companionway (door + sliding hatch, three steps), lowered cockpit
-  with benches and the wheel, railing with a gate at the stern, instrument panel position. `boatSurfaces(x, z,
+  (floor just above the waterline, settees, table), windows (sides and front), companionway (door + sliding hatch,
+  three steps), lowered cockpit with side benches and the wheel, with ~1.6 m of free floor behind the wheel, railing with a gate at the stern, instrument panel position. `boatSurfaces(x, z,
   doorOpen)` returns what can be stood on / bumped into there (with `bottom` for roofs) — the model and the walking
   physics both use it, so change them together through `layout.ts`.
-- `model.ts` merges static parts per material (`Parts`), so the boat is ~15 draw calls. The cabin has its own
+- `cabinProps.ts`: what's lying around below deck — chart (canvas texture with course and compass rose), dividers,
+  pencil, coffee mugs, a letter, lunch, fruit bowl, bookshelves (books share one vertex-coloured material), radio,
+  plant, ship in a bottle, binoculars, lantern, rug, a clock showing the real time and a barometer following the
+  wind (both small canvases redrawn once a second), and a lifebuoy on the stern rail. Deterministic (seeded).
+- `model.ts` merges static parts per material (`parts.ts`; `Parts.wall` cuts window openings), so the boat stays
+  at a few dozen draw calls. Window panes are one transparent mesh that casts no shadow. The cabin has its own
   slightly emissive materials (no extra light: a point light would cost on every lit fragment in the scene).
   The water shader discards the sea inside the hull's footprint, otherwise it shows through the cabin floor.
 - `ui/instrumentPanel.ts` draws chart plotter (`ui/minimap.ts`, now an offscreen chart), wind dial, speed/heading
