@@ -67,6 +67,21 @@ any more apart from the crosshair and the key help line: the instruments are a s
   `public/sounds/` as AAC .m4a (this ffmpeg has no Vorbis encoder; AAC decodes in all target browsers).
   `audio/doorSound.ts`: door.mp3 holds opening (start) and closing (end); each click plays its part, the close
   delayed so the slam lands when the door animation shuts.
+- Marine VHF (channel 16), always on: set in the cabin (aft wall, port of the steps) and a remote unit with speaker
+  on the port cockpit wall; click either to switch off/on. `radio/vhf.ts` (pure, tested) decides who speaks, run at
+  2 Hz: coast guard weather (first after ~45 s, then every ~10 min, and when wind turns > 35° or changes ≥ 2 Bft),
+  big ships on a collision course (CPA < 300 m within 7 min) call the yacht once, marina chatter within 6 km of a
+  harbour, shore warnings, radio checks. ≥ 25 s between conversations. Vessels get deterministic names from
+  their id. `audio/vhfSound.ts` speaks via the browser's speech synthesis (needs a prior user gesture; one voice
+  per station, British for the coast guard). `radioVoices` skips macOS novelty voices (some sing!) and robotic
+  Eloquence voices — names are localized, so the block list has German names too — and prefers natural ones;
+  messages wait until the voice list is loaded (otherwise the browser's default, e.g. German, voice reads them),
+  with squelch click, fluttering band-passed static and random crackle under the voice and a "kshh" tail at the end
+  (speech synthesis can't be routed through Web Audio, so the noise is layered around it; Tuning → VHF static), with squelch clicks and band-passed static; out of earshot of the
+  boat (60 m) transmissions are missed. Fully offline.
+- Radio language: English by default, German optional (Tuning → Sound → VHF language). The brain
+  decides *what happens* (facts); `Phrasebook`s in `radio/vhf.ts` say it per language (German uses real German
+  radio phrases: Kommen/Ende, rechtsdrehend, Steuerbordbug…). Voices are picked for the same language.
 - Steering: with the wheel under the crosshair (within ~2.6 m) click and drag; the crosshair turns into a ring
   when it can be grabbed. The mouse moves a virtual hand (2.5× gain) that is raycast onto the wheel plane in the
   boat's frame; the angle turned around the axle sets the helm. Let go, the wheel stays put (no self-centering).

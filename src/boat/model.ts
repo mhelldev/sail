@@ -4,7 +4,7 @@ import { addCabinProps } from './cabinProps';
 import { Parts, type Rect } from './parts';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
-  BENCH, CABIN, COCKPIT, DOOR, ENGINE_PANEL, FRONT_WINDOWS, HALF_BEAM, HELM, LENGTH, MAST_TOP, MAST_Z, PANEL, RAIL, SETTEE, SIDE_WINDOW, STAIRS, TABLE, THROTTLE,
+  BENCH, CABIN, COCKPIT, DOOR, ENGINE_PANEL, FRONT_WINDOWS, HALF_BEAM, HELM, LENGTH, MAST_TOP, MAST_Z, PANEL, RAIL, SETTEE, SIDE_WINDOW, STAIRS, TABLE, THROTTLE, VHF, VHF_REMOTE,
   deckY, halfWidth, keelY, stationT, stationZ,
 } from './layout';
 
@@ -210,6 +210,11 @@ export class BoatModel {
   readonly startButton = new THREE.Group();
   readonly lever = new THREE.Group();
   readonly engineScreen: THREE.Mesh;
+  /** marine VHF set (cabin) and its remote unit (cockpit): click either to switch it on/off */
+  readonly vhf = new THREE.Group();
+  readonly vhfRemote = new THREE.Group();
+  /** their displays share one material, set by the VHF display */
+  readonly vhfScreens: THREE.Mesh[] = [];
   /** companionway open (target; the door and hatch move there over ~0.6 s) */
   doorOpen = false;
   private doorAmount = 0;
@@ -410,6 +415,34 @@ export class BoatModel {
     this.startButton.add(hit(0.06, 0.09, 0.09));
     this.tilt.add(this.lever);
 
+    // Marine VHF on the cabin's aft wall, facing forward into the cabin: grey box, LCD, knobs and
+    // the handset on its hook.
+    const vhfGrey = new THREE.MeshStandardMaterial({ color: 0x3a3f44, roughness: 0.6, emissive: 0x111315 });
+    this.vhf.position.set(VHF.x, VHF.y, VHF.z);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.1, 0.14).translate(0, 0, -0.07), vhfGrey);
+    const lcd = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.05).rotateY(Math.PI), new THREE.MeshBasicMaterial());
+    lcd.position.set(0.03, 0.005, -0.1405);
+    const knobs = [-0.07, -0.1].map((x) => {
+      const k = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.015, 10).rotateX(Math.PI / 2), dark);
+      k.position.set(x, 0.01, -0.147);
+      return k;
+    });
+    const handset = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.1, 0.035), dark);
+    handset.position.set(0.17, -0.02, -0.03);
+    this.vhf.add(body, lcd, ...knobs, handset);
+    this.vhfScreens.push(lcd);
+    this.tilt.add(this.vhf);
+    // Remote unit in the cockpit (port wall, facing starboard), with a round speaker grille.
+    this.vhfRemote.position.set(VHF_REMOTE.x, VHF_REMOTE.y, VHF_REMOTE.z);
+    const remote = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.17, 0.1).translate(0.015, 0, 0), vhfGrey);
+    const remoteLcd = new THREE.Mesh(new THREE.PlaneGeometry(0.08, 0.04).rotateY(Math.PI / 2), new THREE.MeshBasicMaterial());
+    remoteLcd.position.set(0.031, 0.045, 0);
+    const speaker = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.02, 16).rotateZ(Math.PI / 2), dark);
+    speaker.position.set(0.01, 0, 0.17);
+    this.vhfRemote.add(remote, remoteLcd, speaker);
+    this.vhfScreens.push(remoteLcd);
+    this.tilt.add(this.vhfRemote);
+
     // Railing: stanchions along the deck edge, two wires, a pulpit at the bow, a gate at the stern.
     const railPoint = (t: number, side: number, h: number) =>
       new THREE.Vector3(side * (halfWidth(t) - RAIL.inset), deckY(t) + h, stationZ(t));
@@ -498,6 +531,7 @@ export class BoatModel {
     this.panes.castShadow = false;
     this.panel.castShadow = this.panel.receiveShadow = false;
     this.engineScreen.castShadow = this.engineScreen.receiveShadow = false;
+    for (const m of this.vhfScreens) m.castShadow = m.receiveShadow = false;
   }
 
   /**

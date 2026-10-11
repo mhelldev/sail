@@ -61,6 +61,13 @@ export const HELM_STAND = { x: 0, z: COCKPIT.back - 0.3 }; // as far back as the
 export const ENGINE_PANEL = { x: COCKPIT.halfWidth, y: 1.04, z: 4.3, width: 0.44, height: 0.3 };
 export const THROTTLE = { x: COCKPIT.halfWidth, y: 1.08, z: 3.72, length: 0.24, swing: 0.9 };
 
+/**
+ * Marine VHF: the set on the cabin's aft wall (inside, port of the steps), and a remote unit with a
+ * speaker on the port cockpit wall, opposite the engine panel.
+ */
+export const VHF = { x: -0.85, y: 1.55, z: CABIN.back - 0.015 };
+export const VHF_REMOTE = { x: -COCKPIT.halfWidth, y: 1.08, z: 4.3 };
+
 /** Instrument panel on the deckhouse's aft wall, starboard of the door. */
 export const PANEL = { x: 0.85, y: 1.72, width: 0.8, height: 0.56, z: CABIN.back + 0.065 };
 

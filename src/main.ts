@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import GUI from 'lil-gui';
 import { DoorSound } from './audio/doorSound';
 import { EngineSound } from './audio/engineSound';
+import { VhfSound } from './audio/vhfSound';
+import { VhfBrain, type RadioLanguage } from './radio/vhf';
+import { VhfDisplay } from './ui/vhfDisplay';
 import { SeaSound } from './audio/seaSound';
 import { Boat } from './boat/boat';
 import { SAILING } from './boat/sailing';
@@ -173,6 +176,8 @@ walk.clickables.push(
   // Engine: key ON/OFF, START (only with the key on and the lever in neutral).
   { object: boat.model.key, onClick: () => boat.engine.toggleKey() },
   { object: boat.model.startButton, onClick: () => boat.engine.pressStart() },
+  { object: boat.model.vhf, onClick: () => vhfSound.togglePower() },
+  { object: boat.model.vhfRemote, onClick: () => vhfSound.togglePower() },
 );
 // Throttle/gear lever: drag up (push forward) for ahead, down for astern; let go near upright and
 // it clicks into neutral.
@@ -195,6 +200,18 @@ const touchUi = new TouchUi(app, input);
 const BASE = import.meta.env.BASE_URL;
 const seaSound = new SeaSound({ ogg: `${BASE}sounds/sealoop.ogg`, m4a: `${BASE}sounds/sealoop.m4a` });
 const doorSound = new DoorSound(`${BASE}sounds/door.mp3`);
+// Marine VHF on channel 16: always on (click the set or the cockpit unit to switch it off).
+const vhfBrain = new VhfBrain();
+const vhfSound = new VhfSound();
+const vhfDisplay = new VhfDisplay();
+// Radio language: English, like international marine radio (German available in Tuning → Sound).
+const radio = { language: 'en' as RadioLanguage };
+const setRadioLanguage = (lang: RadioLanguage) => {
+  vhfBrain.language = lang;
+  vhfSound.language = lang;
+};
+setRadioLanguage(radio.language);
+for (const screen of boat.model.vhfScreens) screen.material = vhfDisplay.material;
 const engineSound = new EngineSound({ ignition: `${BASE}sounds/ignition.m4a`, engine: `${BASE}sounds/engine.m4a` });
 
 // Debug / tuning panel (press G to toggle).
@@ -247,6 +264,9 @@ environmentFolder.add(environment, 'night').name('night (N)').listen();
 const soundFolder = gui.addFolder('Sound');
 soundFolder.add(seaSound, 'volume', 0, 2, 0.05).name('sea volume');
 soundFolder.add(engineSound, 'volume', 0, 2, 0.05).name('engine volume');
+soundFolder.add(vhfSound, 'volume', 0, 2, 0.05).name('VHF volume');
+soundFolder.add(vhfSound, 'staticLevel', 0, 2, 0.05).name('VHF static');
+soundFolder.add(radio, 'language', { Deutsch: 'de', English: 'en' }).name('VHF language').onChange(setRadioLanguage);
 soundFolder.add(seaSound, 'muted').name('muted (V)').listen();
 const debugFolder = gui.addFolder('Debug');
 debugFolder.add(coastLines.object, 'visible').name('coastline lines (C)').listen();
@@ -323,6 +343,7 @@ function frame(timestamp: number): void {
   );
   engineDisplay.update(dt, boat.engine, camera.position.distanceTo(boat.position) < 30);
   engineSound.update(boat.engine, camera.position.distanceTo(boat.object.position), seaSound.muted);
+  updateVhf(dt);
 
 
   renderer.render(scene, camera);
@@ -330,5 +351,25 @@ function frame(timestamp: number): void {
 }
 renderer.setAnimationLoop(frame);
 
+/** The VHF listens to what happens around the boat; the brain decides who speaks (twice a second). */
+let vhfThink = 0;
+function updateVhf(dt: number): void {
+  vhfThink += dt;
+  if (vhfThink >= 0.5) {
+    const near = harborData.nearestHarbor(boat.position.x, boat.position.z, 8000);
+    const said = vhfBrain.update(vhfThink, {
+      wind: { direction: wind.direction, speed: wind.speed },
+      boat: { x: boat.position.x, z: boat.position.z, heading: boat.state.heading, speed: Math.abs(boat.state.speed), sailUp: boat.sailUp, grounded: boat.grounded },
+      coastDistance: coastline.signedDistance(boat.position.x, boat.position.z, 500),
+      harbor: near && { name: near.harbor.name, distance: near.distance, isHarbour: near.harbor.isHarbour },
+      vessels: traffic.vessels,
+    });
+    vhfThink = 0;
+    if (said.length && vhfSound.power) vhfSound.receive(said);
+  }
+  vhfSound.update(camera.position.distanceTo(boat.object.position), seaSound.muted);
+  vhfDisplay.update(vhfSound.power, vhfSound.receiving);
+}
+
 // Dev-only handle for poking at the scene from the browser console.
-if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, seaSound, engineSound, traffic, trafficRenderer, environment, walk, input, frame } });
+if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, seaSound, engineSound, vhfBrain, vhfSound, traffic, trafficRenderer, environment, walk, input, frame } });
