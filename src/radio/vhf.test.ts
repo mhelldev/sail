@@ -69,4 +69,12 @@ describe('VHF', () => {
     expect(ship[0].text).toContain('Seemeilen');
     expect(ship[0].text).toMatch(/Kommen\.$/);
   });
+
+  it('reports rain, fog and gusts', () => {
+    const brain = new VhfBrain(() => 0.5);
+    const said = run(brain, { ...calm, weather: { rain: 0.8, fog: 0.9, gusts: 1, visibility: 400 } }, 60);
+    expect(said[0].text).toContain('Rain.');
+    expect(said[0].text).toContain('Visibility very poor in fog');
+    expect(said[0].text).toMatch(/gusts force \d/);
+  });
 });

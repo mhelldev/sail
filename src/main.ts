@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import GUI from 'lil-gui';
+import { Ambience } from './audio/ambience';
 import { DoorSound } from './audio/doorSound';
 import { EngineSound } from './audio/engineSound';
 import { VhfSound } from './audio/vhfSound';
@@ -7,6 +8,7 @@ import { VhfBrain, type RadioLanguage } from './radio/vhf';
 import { VhfDisplay } from './ui/vhfDisplay';
 import { SeaSound } from './audio/seaSound';
 import { Boat } from './boat/boat';
+import { Refuelling, type RefuelProblem } from './boat/refuel';
 import { SAILING } from './boat/sailing';
 import { Input } from './core/input';
 import { PerformanceGovernor } from './core/performance';
@@ -36,6 +38,12 @@ import { Water } from './water/water';
 import { createWaveField } from './water/waves';
 import { Wind } from './weather/wind';
 import { Environment } from './world/environment';
+import { NIGHT } from './world/night';
+import { Rain, rainyGlass } from './world/rain';
+import { Weather, type WeatherMode } from './weather/weather';
+import { Gulls } from './world/gulls';
+import { Seals } from './world/seals';
+import { CABIN } from './boat/layout';
 
 // Start where the Godot game started: off Schouwen-Duiveland, Zeeland (NL).
 // The world origin is fixed here; 1 unit = 1 m, +X east, -Z north.
@@ -85,6 +93,10 @@ const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerH
 const environment = new Environment(scene, renderer);
 const input = new Input();
 const wind = new Wind();
+// The weather (changes by itself, or set in Tuning).
+const weather = new Weather();
+const rain = new Rain();
+scene.add(rain.mesh);
 
 const terrainParams = { ...DEFAULT_TERRAIN };
 const terrain = new TerrainManager(
@@ -105,6 +117,11 @@ function groundFor(params: TerrainParams): Ground {
 }
 const harbors = new HarborRenderer(harborData, groundFor(terrainParams));
 scene.add(harbors.group);
+// Wildlife: gulls over the harbours and around the boat, seals on the beaches.
+const gulls = new Gulls();
+scene.add(gulls.mesh);
+const seals = new Seals(groundFor(terrainParams));
+scene.add(seals.group);
 const traffic = new TrafficManager(coastline, harborData);
 const trafficRenderer = new TrafficRenderer();
 scene.add(trafficRenderer.group);
@@ -131,6 +148,7 @@ function resetBoat(): void {
   boat.state = { ...boat.state, heading: (wind.direction + 90) % 360, speed: 0, turnSpeed: 0 };
   boat.helm.position = 0;
   boat.sailUp = true;
+
   // Back at the start: engine off, lever in neutral, tank full.
   if (boat.engine.ignition) boat.engine.toggleKey();
   boat.engine.setLever(0);
@@ -188,6 +206,34 @@ walk.draggables.push({
     if (boat.engine.inNeutral) boat.engine.setLever(0);
   },
 });
+// Fuel berth: the pump at the nearest pier head gets an invisible click target (the pumps themselves
+// are instanced). Click it alongside, stopped, with the engine off.
+const refuelling = new Refuelling();
+const pumpTarget = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.9, 1.2).translate(0, 0.95, 0), new THREE.MeshBasicMaterial({ visible: false }));
+pumpTarget.visible = false;
+scene.add(pumpTarget);
+const REFUEL_NOTES: Record<RefuelProblem, string> = {
+  'too far': 'Bring the boat alongside the fuel berth first',
+  moving: 'Stop the boat alongside first',
+  'engine running': 'Switch the engine off before refuelling',
+  full: 'The tank is full',
+};
+const berth = () => {
+  const d = Math.hypot(boat.position.x - pumpTarget.position.x, boat.position.z - pumpTarget.position.z);
+  return { distance: d, speed: boat.state.speed };
+};
+walk.clickables.push({
+  object: pumpTarget,
+  reach: 9, // the hose reaches across from the cockpit
+  onClick: () => {
+    const was = refuelling.active;
+    const problem = refuelling.toggle(boat.engine, berth());
+    hud.notify(problem ? REFUEL_NOTES[problem] : was ? 'Refuelling stopped' : 'Refuelling…');
+  },
+});
+const glassRain = { value: 0 };
+const glassTime = { value: 0 };
+rainyGlass(boat.model.windowGlass, glassRain, glassTime);
 const engineDisplay = new EngineDisplay();
 boat.model.engineScreen.material = engineDisplay.material;
 const hud = new Hud(app);
@@ -199,6 +245,7 @@ const fps = new FpsCounter(app);
 const touchUi = new TouchUi(app, input);
 const BASE = import.meta.env.BASE_URL;
 const seaSound = new SeaSound({ ogg: `${BASE}sounds/sealoop.ogg`, m4a: `${BASE}sounds/sealoop.m4a` });
+const ambience = new Ambience();
 const doorSound = new DoorSound(`${BASE}sounds/door.mp3`);
 // Marine VHF on channel 16: always on (click the set or the cockpit unit to switch it off).
 const vhfBrain = new VhfBrain();
@@ -236,6 +283,7 @@ const terrainFolder = gui.addFolder('Terrain');
 const regenerate = () => {
   terrain.setParams({ ...terrainParams });
   harbors.setGround(groundFor({ ...terrainParams }));
+  seals.setGround(groundFor({ ...terrainParams }));
 };
 terrainFolder.add(terrainParams, 'seed', 1, 1000, 1).onFinishChange(regenerate);
 terrainFolder.add(terrainParams, 'mountainHeight', 0, 1500, 10).name('mountain height').onFinishChange(regenerate);
@@ -261,8 +309,12 @@ trafficFolder.add(traffic, 'density', 0, 3, 0.1);
 trafficFolder.add({ get vessels() { return traffic.vessels.length; } }, 'vessels').listen().disable();
 const environmentFolder = gui.addFolder('Environment');
 environmentFolder.add(environment, 'night').name('night (N)').listen();
+environmentFolder
+  .add(weather, 'mode', ['auto', 'clear', 'cloudy', 'rain', 'fog', 'storm'] satisfies WeatherMode[])
+  .name('weather');
 const soundFolder = gui.addFolder('Sound');
 soundFolder.add(seaSound, 'volume', 0, 2, 0.05).name('sea volume');
+soundFolder.add(ambience, 'volume', 0, 2, 0.05).name('wind, gulls, rigging');
 soundFolder.add(engineSound, 'volume', 0, 2, 0.05).name('engine volume');
 soundFolder.add(vhfSound, 'volume', 0, 2, 0.05).name('VHF volume');
 soundFolder.add(vhfSound, 'staticLevel', 0, 2, 0.05).name('VHF static');
@@ -299,6 +351,9 @@ function frame(timestamp: number): void {
     walk.enter();
   }
 
+  weather.update(dt, wind.speed);
+  wind.gustiness = weather.state.gusts;
+  wind.weatherFactor = weather.windFactor;
   wind.update(time);
   // Sea state follows the wind: calm below ~3 m/s, fully developed around 15 m/s.
   const seaState = THREE.MathUtils.clamp(wind.speed / 15, 0.15, 1);
@@ -317,7 +372,19 @@ function frame(timestamp: number): void {
   // The world is built around the player, who may have walked or swum away from the boat.
   const me = walk.position;
   water.update(time, me.x, me.z);
-  environment.update(dt, camera);
+  environment.update(dt, camera, {
+    weather: weather.state,
+    visibility: weather.visibility,
+    time,
+    wind: { direction: wind.direction, speed: wind.speed },
+  });
+  // Rain: falling around you, roughening the water, running down the cabin windows.
+  const windTo = THREE.MathUtils.degToRad(wind.direction + 180);
+  rain.update(time, camera, weather.state.rain, Math.sin(windTo) * wind.speed, -Math.cos(windTo) * wind.speed, NIGHT.value);
+  water.rain = weather.state.rain;
+  glassRain.value = weather.state.rain;
+  glassTime.value = time;
+  boat.model.barometer = wind.speed + weather.state.rain * 8;
   environment.follow(me);
   terrain.update(me.x, me.z);
   shoreMap.update(me.x, me.z);
@@ -344,12 +411,64 @@ function frame(timestamp: number): void {
   engineDisplay.update(dt, boat.engine, camera.position.distanceTo(boat.position) < 30);
   engineSound.update(boat.engine, camera.position.distanceTo(boat.object.position), seaSound.muted);
   updateVhf(dt);
+  updateFuelBerth(dt);
+  updateWildlife(dt, time);
 
 
   renderer.render(scene, camera);
   input.endFrame();
 }
 renderer.setAnimationLoop(frame);
+
+/** Gulls, seals and the sounds around the boat: wind in the rigging, flapping sails, halyards, gull calls. */
+const local = new THREE.Vector3();
+const toGull = new THREE.Vector3();
+const camRight = new THREE.Vector3();
+function updateWildlife(dt: number, time: number): void {
+  const me = walk.position;
+  const anchors = harborData.harbors
+    .near(me.x, me.z, 2500)
+    .sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))
+    .slice(0, 3);
+  gulls.update(dt, time, boat.position, anchors, waves);
+  seals.update(time, me.x, me.z);
+
+  // In the cabin? (person in the boat's frame: within the deckhouse, below the roof)
+  local.copy(me);
+  boat.model.tilt.worldToLocal(local);
+  const inside = Math.abs(local.x) < CABIN.halfWidth && local.z > CABIN.front && local.z < CABIN.back && local.y < CABIN.roofBottom;
+  const nearest = harborData.nearestHarbor(me.x, me.z, 2000);
+  ambience.update({
+    windSpeed: wind.speed,
+    boatDistance: camera.position.distanceTo(boat.object.position),
+    inside,
+    luff: boat.sailUp ? Math.max(boat.state.luffMain, boat.state.luffJib) : 0,
+    harbourDistance: nearest?.distance ?? Infinity,
+    rain: weather.state.rain,
+    muted: seaSound.muted,
+  });
+  // Now and then a gull nearby calls; it's heard from where it is.
+  const near = gulls.near(me.x, me.z, 220);
+  if (near.length && Math.random() < dt * 0.06) {
+    const g = near[Math.floor(Math.random() * near.length)];
+    toGull.set(g.x - camera.position.x, g.y - camera.position.y, g.z - camera.position.z);
+    const d = toGull.length();
+    camRight.setFromMatrixColumn(camera.matrixWorld, 0);
+    ambience.gullCall(toGull.normalize().dot(camRight), (inside ? 0.3 : 1) / (1 + d / 45));
+  }
+}
+
+/** Moves the pump's click target to the nearest pier head and runs the refuelling. */
+function updateFuelBerth(dt: number): void {
+  const pump = harbors.nearestFuelPump(walk.position.x, walk.position.z, 60);
+  pumpTarget.visible = !!pump;
+  if (pump) pumpTarget.position.set(pump.x, pump.y, pump.z);
+  if (!refuelling.active) return;
+  const result = refuelling.update(dt, boat.engine, berth());
+  if (result === 'done') hud.notify(`Tank full — ${Math.round(boat.engine.fuel)} L`);
+  else if (result) hud.notify(`Refuelling stopped: ${REFUEL_NOTES[result as RefuelProblem].toLowerCase()}`);
+  else hud.notify(`Refuelling… ${Math.round(boat.engine.fuel)} L`, 1);
+}
 
 /** The VHF listens to what happens around the boat; the brain decides who speaks (twice a second). */
 let vhfThink = 0;
@@ -363,6 +482,7 @@ function updateVhf(dt: number): void {
       coastDistance: coastline.signedDistance(boat.position.x, boat.position.z, 500),
       harbor: near && { name: near.harbor.name, distance: near.distance, isHarbour: near.harbor.isHarbour },
       vessels: traffic.vessels,
+      weather: { ...weather.state, visibility: weather.visibility },
     });
     vhfThink = 0;
     if (said.length && vhfSound.power) vhfSound.receive(said);
@@ -372,4 +492,4 @@ function updateVhf(dt: number): void {
 }
 
 // Dev-only handle for poking at the scene from the browser console.
-if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, seaSound, engineSound, vhfBrain, vhfSound, traffic, trafficRenderer, environment, walk, input, frame } });
+if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, seaSound, engineSound, gulls, seals, ambience, vhfBrain, vhfSound, traffic, trafficRenderer, environment, weather, walk, input, frame } });

@@ -94,6 +94,10 @@ const GEOMETRY: Record<PartType, () => THREE.BufferGeometry> = {
   millCap: gable,
   rock: () => new THREE.DodecahedronGeometry(0.5, 0),
   lampPost: () => new THREE.CylinderGeometry(0.5, 0.5, 1, 5).translate(0, 0.5, 0),
+  fuelPump: box,
+  fuelPanel: box,
+  fuelPost: () => new THREE.CylinderGeometry(0.5, 0.5, 1, 5).translate(0, 0.5, 0),
+  fuelSign: box,
 };
 
 /** Wall types that get procedural windows. */
@@ -324,6 +328,17 @@ export class HarborRenderer {
       }
     }
     return tops;
+  }
+
+  /** The nearest fuel pump (pier heads of the villages around) within `radius`, if any. */
+  nearestFuelPump(x: number, z: number, radius: number): { x: number; y: number; z: number; distance: number } | undefined {
+    let best: { x: number; y: number; z: number; distance: number } | undefined;
+    for (const v of this.villages.values()) {
+      if (!v.fuel) continue;
+      const d = Math.hypot(v.fuel.x - x, v.fuel.z - z);
+      if (d <= radius && (!best || d < best.distance)) best = { ...v.fuel, distance: d };
+    }
+    return best;
   }
 
   get villageCount(): number {

@@ -25,6 +25,7 @@ export class Boat {
   readonly helm = new Helm();
   /** Auxiliary diesel: key, START, throttle/gear lever, fuel. */
   readonly engine = new Engine();
+
   private pitch = 0;
   private roll = 0;
   private heave = 0;
@@ -54,11 +55,18 @@ export class Boat {
 
     this.state = stepSailing(
       this.state,
-      { steer: this.helm.position, sailUp: this.sailUp, turbo: this.turbo, motor: this.engine.thrust },
+      {
+        steer: this.helm.position,
+        sailUp: this.sailUp,
+        turbo: this.turbo,
+        motor: this.engine.thrust,
+      },
       wind.direction,
       wind.speed,
       dt,
     );
+    const s = this.state;
+    this.model.setSails(s.jib, s.luffMain, s.luffJib);
 
     const fwd = this.forward();
     const sd = this.landDistance;

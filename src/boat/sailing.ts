@@ -87,6 +87,53 @@ export function heelAngle(headingDeg: number, windFromDeg: number, windSpeed: nu
   return Math.sign(rel) * Math.sin((Math.abs(rel) * Math.PI) / 180) * strength * SAILING.maxHeel;
 }
 
+// ---- Sail trim -------------------------------------------------------------------------------
+//
+// The sails trim themselves (each at its best angle for the wind). Pointing too close to the wind
+// they can't fill: they luff (flap) and lose their drive. `sailTrim` also models a sheet setting, which
+// the boat always sets just right.
+
+export type SailKind = 'main' | 'jib';
+
+const SHEET_RANGE: Record<SailKind, [number, number]> = { main: [4, 88], jib: [6, 78] };
+
+/** Best sail angle (degrees off the centreline) for a wind angle. */
+export function optimalSailAngle(windAngleDeg: number, kind: SailKind): number {
+  const a = Math.min(180, Math.max(0, windAngleDeg));
+  return kind === 'main' ? Math.min(80, Math.max(8, a * 0.45)) : Math.min(70, Math.max(10, a * 0.45));
+}
+
+/** The sheet setting (0 hauled in … 1 eased) that sets the sail at its best angle. */
+export function optimalSheet(windAngleDeg: number, kind: SailKind): number {
+  const [lo, hi] = SHEET_RANGE[kind];
+  return Math.min(1, Math.max(0, (optimalSailAngle(windAngleDeg, kind) - lo) / (hi - lo)));
+}
+
+export interface SailTrim {
+  /** sail angle off the centreline, degrees (unsigned) */
+  angle: number;
+  /** 0 … 1: how well the sail drives */
+  efficiency: number;
+  /** 0 … 1: how much it flaps (eased too far, or pointing into the wind) */
+  luff: number;
+  /** 0 … 1: how much too tight */
+  overTrim: number;
+}
+
+export function sailTrim(windAngleDeg: number, sheet: number, kind: SailKind): SailTrim {
+  const [lo, hi] = SHEET_RANGE[kind];
+  const allowed = lo + Math.min(1, Math.max(0, sheet)) * (hi - lo);
+  const wind = Math.min(180, Math.max(0, windAngleDeg));
+  // The wind can't push the sail past the wind direction.
+  const angle = Math.max(0, Math.min(allowed, wind - 3));
+  const best = optimalSailAngle(wind, kind);
+  const overTrim = allowed < best ? Math.min(1, (best - allowed) / Math.max(best, 12)) : 0;
+  // Eased beyond its best angle the sail starts to luff; pointing too close to the wind it luffs anyway.
+  const luff = Math.min(1, Math.max(0, (angle - best) / 16) + Math.max(0, (32 - wind) / 20));
+  const efficiency = Math.max(0, (1 - 0.75 * Math.pow(overTrim, 1.2)) * (1 - 0.9 * luff));
+  return { angle, efficiency, luff, overTrim };
+}
+
 export interface SailingInput {
   steer: number; // -1 (port) … 1 (starboard)
   sailUp: boolean;
@@ -100,11 +147,18 @@ export interface SailingState {
   speed: number; // m/s
   turnSpeed: number; // rad/s, positive = turning to starboard
   heel: number; // degrees
-  boom: number; // degrees
+  boom: number; // degrees (main), positive = swung to starboard
+  /** jib angle, degrees, same sign convention as the boom */
+  jib: number;
+  /** 0 … 1 how much each sail flaps */
+  luffMain: number;
+  luffJib: number;
+  /** 0 … 1 combined drive of both sails (less when luffing) */
+  drive: number;
 }
 
 export function createSailingState(heading = 0): SailingState {
-  return { heading, speed: 0, turnSpeed: 0, heel: 0, boom: 0 };
+  return { heading, speed: 0, turnSpeed: 0, heel: 0, boom: 0, jib: 0, luffMain: 0, luffJib: 0, drive: 1 };
 }
 
 /** Frame-rate independent approach of `current` to `target`. */
@@ -120,6 +174,12 @@ export function stepSailing(
   dt: number,
 ): SailingState {
   const motor = input.motor ?? 0;
+  const relWind = relativeWind(s.heading, windFromDeg);
+  const angle = Math.abs(relWind);
+  const main = sailTrim(angle, optimalSheet(angle, 'main'), 'main');
+  const jibTrim = sailTrim(angle, optimalSheet(angle, 'jib'), 'jib');
+  const sailing = input.sailUp && !input.turbo;
+  const drive = sailing ? 0.62 * main.efficiency + 0.38 * jibTrim.efficiency : 0;
   // Steering: the rudder needs water flow, so turning is sluggish when slow — unless the propeller
   // blows water past it. Going astern, the stern goes where the rudder points: the bow swings the other way.
   const flow = Math.abs(s.speed) + Math.max(0, motor) * 2;
@@ -131,8 +191,7 @@ export function stepSailing(
   let targetSpeed = 0;
   if (input.turbo) targetSpeed = SAILING.turboSpeed;
   else if (input.sailUp)
-    targetSpeed =
-      Math.min(SAILING.maxSpeed, windSpeed * polarFactor(windAngle(heading, windFromDeg))) * SAILING.speedMultiplier;
+    targetSpeed = Math.min(SAILING.maxSpeed, windSpeed * polarFactor(windAngle(heading, windFromDeg))) * SAILING.speedMultiplier * drive;
   // The engine: ahead it adds to the sails (the faster of the two, plus a little); astern it fights them.
   if (!input.turbo && motor > 0) {
     const m = motor * SAILING.motorSpeed;
@@ -143,11 +202,16 @@ export function stepSailing(
   const speedRate = input.turbo ? 1 : motor !== 0 ? Math.max(SAILING.speedResponse, SAILING.motorResponse) : SAILING.speedResponse;
   const speed = approach(s.speed, targetSpeed, speedRate, dt);
 
-  const targetHeel = input.sailUp && !input.turbo ? heelAngle(heading, windFromDeg, windSpeed) : 0;
+  // Heel: luffing sails don't pull, so she stands up.
+  const targetHeel = sailing ? heelAngle(heading, windFromDeg, windSpeed) * drive : 0;
   const heel = approach(s.heel, targetHeel, SAILING.heelResponse, dt);
 
-  const targetBoom = input.sailUp ? boomAngle(heading, windFromDeg) : 0;
-  const boom = approach(s.boom, targetBoom, SAILING.boomResponse, dt);
+  // Sails swing to leeward (the side away from the wind), as far as their sheets let them.
+  const leeward = relWind >= 0 ? -1 : 1;
+  const boom = approach(s.boom, input.sailUp ? leeward * main.angle : 0, SAILING.boomResponse, dt);
+  const jib = approach(s.jib, input.sailUp ? leeward * jibTrim.angle : 0, SAILING.boomResponse, dt);
+  const luffMain = input.sailUp ? main.luff : 0;
+  const luffJib = input.sailUp ? jibTrim.luff : 0;
 
-  return { heading, speed, turnSpeed, heel, boom };
+  return { heading, speed, turnSpeed, heel, boom, jib, luffMain, luffJib, drive: input.sailUp ? drive : 0 };
 }

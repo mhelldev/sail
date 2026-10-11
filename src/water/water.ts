@@ -163,6 +163,8 @@ export class Water {
   };
   /** Strength of the small world-fixed ripples (debug panel). */
   readonly detail = { ripples: 0.05 };
+  /** 0 … 1: raindrops roughen the surface (added to the ripples) */
+  rain = 0;
 
   constructor(
     private readonly field: WaveField,
@@ -270,7 +272,7 @@ export class Water {
     // Off the map (or without a wake) the lookup returns 0.
     if (this.wake) u.uWakeRect.value.set(this.wake.x0, this.wake.z0, this.wake.size);
     else u.uWakeRect.value.set(-1e9, -1e9, 1);
-    u.uRipple.value = this.detail.ripples;
+    u.uRipple.value = this.detail.ripples + this.rain * 0.9;
     const shore = this.shore;
     if (shore?.valid) u.uShoreRect.value.set(shore.x0, shore.z0, shore.step, shore.res);
     else u.uShoreRect.value.set(0, 0, 1, 0);

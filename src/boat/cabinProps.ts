@@ -188,7 +188,7 @@ export interface CabinProps {
   /** dimly self-lit materials (the cabin "lamp"), brightened at night by the model */
   materials: THREE.MeshStandardMaterial[];
   /** ticks the clock and the barometer (cheap: small canvases, at most once a second) */
-  update(dt: number, windSpeed: number): void;
+  update(dt: number, windSpeed: number, time: Date): void;
 }
 
 export function addCabinProps(parent: THREE.Object3D, parts: Parts, lamp: THREE.Material): CabinProps {
@@ -352,15 +352,15 @@ export function addCabinProps(parent: THREE.Object3D, parts: Parts, lamp: THREE.
     add(i % 2 ? white : orange, g, -1.0, sternY + 0.38, LENGTH / 2 - 0.02, 0);
   }
 
-  // Clock and barometer: redrawn once a second.
+  // Clock and barometer: redrawn once a second (the clock shows the real time).
   let since = 0;
   return {
     materials,
-    update(dt, windSpeed) {
+    update(dt, windSpeed, time) {
       since += dt;
       if (since < 1) return;
       since = 0;
-      drawClock((clockTex.image as HTMLCanvasElement).getContext('2d')!, new Date());
+      drawClock((clockTex.image as HTMLCanvasElement).getContext('2d')!, time);
       drawBarometer((baroTex.image as HTMLCanvasElement).getContext('2d')!, windSpeed);
       clockTex.needsUpdate = true;
       baroTex.needsUpdate = true;

@@ -27,7 +27,11 @@ export type PartType =
   | 'millTower'
   | 'millCap'
   | 'rock'
-  | 'lampPost';
+  | 'lampPost'
+  | 'fuelPump'
+  | 'fuelPanel'
+  | 'fuelPost'
+  | 'fuelSign';
 
 /** One instance of a unit mesh: position of its base, rotation around Y, size, colour (sRGB hex). */
 export interface Part {
@@ -61,6 +65,8 @@ export interface Village {
   lighthouses: Array<{ x: number; z: number }>;
   /** lamps that glow at night: harbour lights, street lamps */
   lights: Array<{ x: number; y: number; z: number; color: number }>;
+  /** fuel pump at the pier head (the fuel berth), standing on the deck at y */
+  fuel?: { x: number; y: number; z: number };
 }
 
 export interface Ground {
@@ -99,6 +105,7 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
   const mills: Village['mills'] = [];
   const lighthouses: Village['lighthouses'] = [];
   const lights: Village['lights'] = [];
+  let fuel: Village['fuel'];
   const add = (p: Part) => parts.push(p);
   const big = h.isHarbour;
 
@@ -127,6 +134,21 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
         add({ type: 'pile', x: p.x, y: -3, z: p.z, rotY: 0, sx: 0.5, sy: 4.6, sz: 0.5, color: 0x4b3a2a });
       }
     }
+    // Fuel berth at the pier head: a pump and a yellow sign on a post. Boats come alongside the end.
+    const pump = at(1.1, pierLen - 1.5);
+    const deckTop = 1.7;
+    add({ type: 'fuelPump', x: pump.x, y: deckTop, z: pump.z, rotY: seaward, sx: 0.7, sy: 1.5, sz: 0.45, color: 0xc0262d });
+    // Display panels on both faces and the nozzle in its holster on the side.
+    for (const side of [-1, 1]) {
+      const f = at(1.1, pierLen - 1.5 + side * 0.235);
+      add({ type: 'fuelPanel', x: f.x, y: deckTop + 0.85, z: f.z, rotY: seaward, sx: 0.5, sy: 0.45, sz: 0.03, color: 0xf2f2ee });
+    }
+    const nozzle = at(1.5, pierLen - 1.5);
+    add({ type: 'fuelPanel', x: nozzle.x, y: deckTop + 0.6, z: nozzle.z, rotY: seaward, sx: 0.12, sy: 0.35, sz: 0.12, color: 0x1f2326 });
+    const post = at(-1.2, pierLen - 1);
+    add({ type: 'fuelPost', x: post.x, y: deckTop, z: post.z, rotY: 0, sx: 0.1, sy: 3, sz: 0.1, color: 0x9a9a9a });
+    add({ type: 'fuelSign', x: post.x, y: deckTop + 2.2, z: post.z, rotY: alongShore, sx: 0.06, sy: 0.7, sz: 1.3, color: 0xf2c230 });
+    fuel = { x: pump.x, y: deckTop, z: pump.z };
 
     // Pontoon fingers with moored boats on both sides.
     const fingers = big ? Math.floor(rand(4, 7)) : Math.floor(rand(2, 5));
@@ -350,7 +372,7 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
     i++;
   }
 
-  return { harborId: h.id, parts, obstacles, mills, lighthouses, lights };
+  return { harborId: h.id, parts, obstacles, mills, lighthouses, lights, fuel };
 }
 
 /** Signed distance to an obstacle box: positive inside (like land), negative outside. */

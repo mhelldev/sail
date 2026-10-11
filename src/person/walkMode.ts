@@ -33,6 +33,8 @@ export const JOYSTICK = 60;
 export interface Clickable {
   object: THREE.Object3D;
   onClick: () => void;
+  /** how far away it can be clicked (default CLICK_REACH) */
+  reach?: number;
 }
 
 /** Something on the boat that is held and moved up/down (forward/back), like the throttle lever. */
@@ -294,19 +296,23 @@ export class WalkMode {
   }
 
   /** The clickable or draggable under a screen point (NDC), if within reach. */
-  private pick<T extends { object: THREE.Object3D }>(list: T[], x: number, y: number): T | undefined {
+  private pick<T extends { object: THREE.Object3D; reach?: number }>(list: T[], x: number, y: number): T | undefined {
     if (!list.length) return undefined;
     this.ndc.set(x, y);
     this.raycaster.setFromCamera(this.ndc, this.camera);
-    this.raycaster.far = CLICK_REACH;
-    const hits = this.raycaster.intersectObjects(list.map((c) => c.object), true);
+    this.raycaster.far = Math.max(CLICK_REACH, ...list.map((c) => c.reach ?? 0));
+    const hits = this.raycaster.intersectObjects(
+      list.filter((c) => c.object.visible).map((c) => c.object),
+      true,
+    );
     this.raycaster.far = Infinity;
     if (!hits.length) return undefined;
-    return list.find((c) => {
+    const target = list.find((c) => {
       let o: THREE.Object3D | null = hits[0].object;
       while (o && o !== c.object) o = o.parent;
       return o === c.object;
     });
+    return target && hits[0].distance <= (target.reach ?? CLICK_REACH) ? target : undefined;
   }
 
   private clickableAt(x: number, y: number): Clickable | undefined {

@@ -35,7 +35,12 @@ export interface RadioWorld {
   coastDistance: number;
   harbor?: { name: string; distance: number; isHarbour: boolean };
   vessels: readonly RadioVessel[];
+  /** rain, fog and gusts 0 … 1, visibility in metres (omitted: fine weather) */
+  weather?: { rain: number; fog: number; gusts: number; visibility: number };
 }
+
+type Visibility = 'good' | 'moderate' | 'poor' | 'fog';
+const visibilityClass = (m: number): Visibility => (m > 8000 ? 'good' : m > 3000 ? 'moderate' : m > 1000 ? 'poor' : 'fog');
 
 const COMPASS16 = [
   'north', 'north north-east', 'north-east', 'east north-east', 'east', 'east south-east', 'south-east', 'south south-east',
@@ -124,7 +129,10 @@ interface WeatherFacts {
   weaker: boolean;
   /** turned clockwise (veering) or anticlockwise (backing) */
   turn: 'veering' | 'backing' | null;
-  poorVisibility: boolean;
+  visibility: Visibility;
+  rain: 'none' | 'showers' | 'rain';
+  /** Beaufort force of the gusts, if notably above the mean wind */
+  gusts?: number;
 }
 
 interface ShipFacts {
@@ -161,8 +169,9 @@ const EN: Phrasebook = {
     const trend = [f.stronger && 'increasing', f.weaker && 'decreasing', f.turn].filter(Boolean).join(' and ');
     return (
       `${thrice('Securité')}. ${thrice('All stations')}. This is Coast Guard. Weather ${f.area ? `for the area of ${f.area}` : 'for the coastal waters'}. ` +
-      `Wind ${directionWord16(f.direction)}, force ${f.force}${trend ? `, ${trend}` : ''}. Sea ${SEA_EN[seaIndex(f.force)]}. ` +
-      `Visibility ${f.poorVisibility ? 'moderate, occasionally poor in rain' : 'good'}. This is Coast Guard. Out.`
+      `Wind ${directionWord16(f.direction)}, force ${f.force}${trend ? `, ${trend}` : ''}${f.gusts ? `, gusts force ${f.gusts}` : ''}. ` +
+      `Sea ${SEA_EN[seaIndex(f.force)]}. ${f.rain === 'rain' ? 'Rain. ' : f.rain === 'showers' ? 'Showers. ' : ''}` +
+      `Visibility ${{ good: 'good', moderate: 'moderate', poor: 'poor', fog: 'very poor in fog' }[f.visibility]}. This is Coast Guard. Out.`
     );
   },
   ship(f) {
@@ -195,8 +204,9 @@ const DE: Phrasebook = {
       .join(' und ');
     return (
       `${thrice('Sécurité')}. ${thrice('An alle Funkstellen')}. Hier ist Küstenwache mit dem Seewetterbericht ${f.area ? `für das Gebiet ${f.area}` : 'für die Küstengewässer'}. ` +
-      `Wind ${KOMPASS16[idx(f.direction, 16)]} ${f.force}${trend ? `, ${trend}` : ''}. See ${SEA_DE[seaIndex(f.force)]}. ` +
-      `Sicht ${f.poorVisibility ? 'mäßig, zeitweise schlecht in Regen' : 'gut'}. Hier ist Küstenwache. Ende.`
+      `Wind ${KOMPASS16[idx(f.direction, 16)]} ${f.force}${trend ? `, ${trend}` : ''}${f.gusts ? `, in Böen ${f.gusts}` : ''}. ` +
+      `See ${SEA_DE[seaIndex(f.force)]}. ${f.rain === 'rain' ? 'Regen. ' : f.rain === 'showers' ? 'Schauer. ' : ''}` +
+      `Sicht ${{ good: 'gut', moderate: 'mäßig', poor: 'schlecht', fog: 'sehr schlecht in Nebel' }[f.visibility]}. Hier ist Küstenwache. Ende.`
     );
   },
   ship(f) {
@@ -233,7 +243,7 @@ export class VhfBrain {
   private time = 0;
   private lastAny = -Infinity;
   private nextWeather = 45; // the first report soon after setting off
-  private lastWeather?: { direction: number; force: number; at: number };
+  private lastWeather?: { direction: number; force: number; at: number; visibility: Visibility; rain: boolean };
   private nextHarborChat = 90;
   private nextRadioCheck: number;
   private lastDanger = -Infinity;
@@ -263,14 +273,22 @@ export class VhfBrain {
   private weather(w: RadioWorld): Transmission[] | undefined {
     const force = beaufort(w.wind.speed);
     const prev = this.lastWeather;
+    const visibility = visibilityClass(w.weather?.visibility ?? 15000);
+    const raining = (w.weather?.rain ?? 0) > 0.3;
+    // A new report when the wind has changed, or rain or fog set in or cleared.
     const changed =
       !!prev &&
       this.time - prev.at > 120 &&
-      (Math.abs(wrapDeg(w.wind.direction - prev.direction)) > 35 || Math.abs(force - prev.force) >= 2);
+      (Math.abs(wrapDeg(w.wind.direction - prev.direction)) > 35 ||
+        Math.abs(force - prev.force) >= 2 ||
+        visibility !== prev.visibility ||
+        raining !== prev.rain);
     if (this.time < this.nextWeather && !changed) return undefined;
     this.nextWeather = this.time + 540 + this.random() * 180;
     const turn = prev ? wrapDeg(w.wind.direction - prev.direction) : 0;
-    this.lastWeather = { direction: w.wind.direction, force, at: this.time };
+    this.lastWeather = { direction: w.wind.direction, force, at: this.time, visibility, rain: raining };
+    const rain = w.weather?.rain ?? 0;
+    const gustForce = beaufort(w.wind.speed * (1 + 0.6 * (w.weather?.gusts ?? 0)));
     const text = this.p.weather({
       area: w.harbor && spokenHarbor(w.harbor.name),
       direction: w.wind.direction,
@@ -278,7 +296,9 @@ export class VhfBrain {
       stronger: !!prev && force > prev.force,
       weaker: !!prev && force < prev.force,
       turn: Math.abs(turn) > 20 ? (turn > 0 ? 'veering' : 'backing') : null,
-      poorVisibility: force >= 7,
+      visibility,
+      rain: rain > 0.6 ? 'rain' : rain > 0.2 ? 'showers' : 'none',
+      gusts: gustForce >= force + 2 ? gustForce : undefined,
     });
     return [{ speaker: 'coastguard', station: 'coastguard', text }];
   }

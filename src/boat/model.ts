@@ -16,6 +16,9 @@ const SECTION_STEPS = 12;
 const BOOM_Y = 2.9;
 const BOOM_LENGTH = 5.2;
 
+/** A sail scaled to exactly zero breaks its normals and renders black. */
+const nonZero = (v: number) => (Math.abs(v) < 0.04 ? (v < 0 ? -0.04 : 0.04) : v);
+
 /** Hull cross-section at t (0 = bow, 1 = stern), from the port deck edge, under the keel, to starboard. */
 function section(t: number): THREE.Vector3[] {
   const w = halfWidth(t);
@@ -232,9 +235,20 @@ export class BoatModel {
   private readonly lamp: THREE.MeshBasicMaterial;
   private readonly navLights: THREE.Points;
   private readonly panes: THREE.Mesh;
+  /** the cabin windows' glass (rain runs down it, see world/rain.ts) */
+  readonly windowGlass = new THREE.MeshStandardMaterial({ color: 0x9fc4d6, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false });
   /** clock and barometer in the cabin */
-  private readonly updateProps: (dt: number, windSpeed: number) => void;
+  private readonly updateProps: (dt: number, windSpeed: number, time: Date) => void;
+
+  /** what the barometer reads: like a wind speed in m/s, higher = stormier (set from wind and weather) */
+  barometer?: number;
   private bellySide = 1;
+  private jibBellySide = 1;
+  private jibDeg = 0;
+  private luffMain = 0;
+  private luffJib = 0;
+  private flapTime = 0;
+
 
   constructor() {
     this.root.add(this.tilt);
@@ -296,7 +310,7 @@ export class BoatModel {
     for (const r of fronts) pane('z', 0, r);
     const panes = new THREE.Mesh(
       mergeGeometries(windowPanes),
-      new THREE.MeshStandardMaterial({ color: 0x9fc4d6, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }),
+      this.windowGlass,
     );
     this.tilt.add(panes);
     this.panes = panes;
@@ -543,6 +557,13 @@ export class BoatModel {
     this.lever.rotation.x = -lever * THROTTLE.swing;
   }
 
+  /** Sails as the physics has them: jib angle (degrees, sign like the boom), how much each luffs (flaps). */
+  setSails(jibDeg: number, luffMain: number, luffJib: number): void {
+    this.jibDeg = jibDeg;
+    this.luffMain = luffMain;
+    this.luffJib = luffJib;
+  }
+
   /** Door and hatch fully open: the companionway can be walked through. */
   get companionwayOpen(): boolean {
     return this.doorOpen && this.doorAmount > 0.8;
@@ -555,22 +576,29 @@ export class BoatModel {
    */
   /** @param windSpeed m/s, for the barometer in the cabin */
   update(boomDeg: number, relWindDeg: number, wheelTurn: number, sailUp: boolean, dt: number, windSpeed = 0): void {
-    this.updateProps(dt, windSpeed);
+    this.updateProps(dt, this.barometer ?? windSpeed, new Date());
     this.sailAmount += ((sailUp ? 1 : 0) - this.sailAmount) * (1 - Math.exp(-2.5 * dt));
     const furl = Math.max(0.02, this.sailAmount);
     const boom = THREE.MathUtils.degToRad(boomDeg);
     // Sails bulge to leeward, i.e. the side the boom is swung to. Never scale to zero:
     // a degenerate scale breaks the normals and renders the sail black.
     if (Math.abs(boomDeg) > 1) this.bellySide = Math.sign(boomDeg);
-    const belly = this.bellySide * THREE.MathUtils.clamp(Math.abs(boomDeg) / 8, 0.15, 1);
+    if (Math.abs(this.jibDeg) > 1) this.jibBellySide = Math.sign(this.jibDeg);
+    // Luffing: the sail loses its shape and flaps from side to side.
+    this.flapTime += dt;
+    const t = this.flapTime;
+    const flap = (luff: number, phase: number) => luff * Math.sin(t * 19 + phase + Math.sin(t * 6.3 + phase) * 1.8);
+    const mainBelly = this.bellySide * THREE.MathUtils.clamp(Math.abs(boomDeg) / 8, 0.15, 1) * (1 - 0.85 * this.luffMain) + flap(this.luffMain, 0) * 0.7;
+    const jibBelly = this.jibBellySide * THREE.MathUtils.clamp(Math.abs(this.jibDeg) / 8, 0.15, 1) * (1 - 0.85 * this.luffJib) + flap(this.luffJib, 2.1) * 0.8;
 
-    this.boom.rotation.y = boom;
-    this.mainsail.scale.set(belly, furl, 1);
+    this.boom.rotation.y = boom + flap(this.luffMain, 1.3) * 0.03;
+    this.mainsail.scale.set(nonZero(mainBelly), furl, 1);
     this.mainsail.visible = this.sailAmount > 0.03;
 
-    this.jibPivot.quaternion.setFromAxisAngle(this.jibAxis, boom * 0.7);
-    this.jib.scale.set(belly, furl, furl);
+    this.jibPivot.quaternion.setFromAxisAngle(this.jibAxis, THREE.MathUtils.degToRad(this.jibDeg) + flap(this.luffJib, 0.4) * 0.05);
+    this.jib.scale.set(nonZero(jibBelly), furl, furl);
     this.jib.visible = this.sailAmount > 0.03;
+
 
     this.windex.rotation.y = -THREE.MathUtils.degToRad(relWindDeg);
     this.wheel.rotation.z = wheelTurn;

@@ -85,4 +85,15 @@ describe('stepSailing', () => {
     for (let i = 0; i < 60; i++) s = stepSailing(s, { steer: 1, sailUp: false, turbo: false, motor: -1 }, 0, 10, 1 / 60);
     expect(wrapDeg(s.heading - before)).toBeLessThan(0); // rudder to starboard, going astern: bow to port
   });
+
+  it('luffs and loses drive pointing into the wind', () => {
+    let s = createSailingState(0);
+    for (let i = 0; i < 60 * 10; i++) s = stepSailing(s, { steer: 0, sailUp: true, turbo: false }, 10, 8, 1 / 60);
+    expect(s.luffMain).toBeGreaterThan(0.5);
+    expect(s.drive).toBeLessThan(0.5);
+    let reach = createSailingState(0);
+    for (let i = 0; i < 60 * 10; i++) reach = stepSailing(reach, { steer: 0, sailUp: true, turbo: false }, 90, 8, 1 / 60);
+    expect(reach.luffMain).toBe(0);
+    expect(reach.drive).toBeGreaterThan(0.95);
+  });
 });

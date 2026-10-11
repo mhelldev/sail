@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Boat } from '../boat/boat';
 import { RUDDER_MAX_DEG } from '../boat/helm';
-import { polarFactor, relativeWind, windAngle } from '../boat/sailing';
+import { relativeWind, windAngle } from '../boat/sailing';
 import type { Harbor } from '../harbors/harborData';
 import type { Wind } from '../weather/wind';
 import type { Minimap } from './minimap';
@@ -40,6 +40,11 @@ function formatCoord(v: number, pos: string, neg: string): string {
 }
 
 const formatDistance = (d: number) => (d >= 1000 ? `${(d / 1000).toFixed(1)} km` : `${Math.round(d)} m`);
+
+/** Pointing too close to the wind the sails just flap; otherwise the point of sail. */
+function trimAdvice(_boat: Boat, angle: number): [string, string] {
+  return angle < 32 ? ['Head to wind — sails flapping', WARN] : [pointOfSail(angle), INK];
+}
 
 function pointOfSail(angle: number): string {
   if (angle < 35) return 'In irons';
@@ -148,15 +153,16 @@ export class InstrumentPanel {
     ctx.fillText(`HDG ${Math.round(heading).toString().padStart(3, '0')}° ${compass(heading)}`, cx, 506);
 
     const angle = windAngle(heading, wind.direction);
+    const [text, color] = boat.turbo ? ['TURBO', ACCENT] : boat.sailUp ? trimAdvice(boat, angle) : ['Sail down', INK];
     ctx.font = `600 28px ${FONT}`;
-    ctx.fillStyle = boat.turbo ? ACCENT : INK;
-    ctx.fillText(boat.turbo ? 'TURBO' : boat.sailUp ? pointOfSail(angle) : 'Sail down', cx, 552);
+    ctx.fillStyle = color;
+    ctx.fillText(text, cx, 552);
     const barX = x0 + 10;
     const barW = W - m - x0 - 20;
     ctx.fillStyle = '#1a2a35';
     ctx.fillRect(barX, 568, barW, 12);
     ctx.fillStyle = '#5cc8a1';
-    ctx.fillRect(barX, 568, barW * (boat.sailUp ? polarFactor(angle) : 0), 12);
+    ctx.fillRect(barX, 568, barW * (boat.sailUp ? boat.state.drive : 0), 12);
     ctx.fillStyle = DIM;
     ctx.font = `600 18px ${FONT}`;
     ctx.fillText('SAIL TRIM', cx, 602);

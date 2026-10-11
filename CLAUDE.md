@@ -58,9 +58,21 @@ any more apart from the crosshair and the key help line: the instruments are a s
 - Engine (`boat/engine.ts`, pure + tested): panel on the starboard cockpit wall right of the wheel — click the key
   (ON: oil/battery lights), click START (cranks ~1 s; only in neutral), key OFF stops it. Throttle/gear lever just
   forward of it: drag up = ahead, down = astern, released near upright it snaps to neutral. Burns fuel (60 L, ~20 min
-  flat out, game time), dies when dry and won't start again; R refuels. Fuel is saved. In `stepSailing` the motor
+  flat out, game time), dies when dry and won't start again; refuel at a fuel berth (below) or R. Fuel is saved. In `stepSailing` the motor
   adds to the sails ahead (~6.6 kn alone), fights them astern, blows water past the rudder (steering at low speed),
   and going astern the bow swings the other way. Gauges: `ui/engineDisplay.ts` (canvas, only redrawn when near).
+- Sails trim themselves (`sailTrim` at the best sheet for the wind). Pointing closer than ~32° to the wind they luff:
+  they visibly flap (and are heard flapping), lose drive and the boat stands up. The instrument screen says so.
+- Fuel berths: every village pier head has a pump (`Village.fuel`, parts fuelPump/fuelPanel/fuelPost/fuelSign).
+  The pumps are instanced, so one invisible click target (`pumpTarget` in main.ts) follows the nearest pump; it can
+  be clicked from 9 m (`Clickable.reach`). `boat/refuel.ts` (pure, tested): alongside (≤ 15 m, ≤ 0.6 m/s), key OFF,
+  4 L/s until full; drifting off or turning the key stops it. Messages via `Hud.notify`.
+- Wildlife: `world/gulls.ts` — one InstancedMesh (≤ 5, deliberately few): one around the boat, two per nearby harbour
+  (circling over the basin, some floating on the water out to sea); the wing beat is in the vertex shader (per-gull
+  phase + flap amount: glide / flap / folded). `world/seals.ts` — colonies on low beaches near the waterline, placed
+  per 500 m cell from a hash (same spots every time), searched once per cell, heads lift now and then. Both ~0.04 ms.
+- `audio/ambience.ts`, all synthesized (no constant wind/rigging sound — removed on request): sail slaps while luffing, halyard "tinks" within ~350 m of a harbour, gull calls
+  (saw glide through a formant filter, panned to the gull's side). Tuning → Sound → "wind, gulls, rigging".
 - Sounds share one AudioContext (`audio/audioHub.ts`, created on the first gesture). `audio/engineSound.ts`: the
   ignition recording plays when the key goes ON, START fades it into the engine loop (made seamless by cross-fading
   its tail into its head), louder and slightly higher with the throttle, quieter with distance. Files in
@@ -140,15 +152,20 @@ any more apart from the crosshair and the key help line: the instruments are a s
 - `trafficRenderer.ts`: one InstancedMesh per shape type; per frame vessel pose (waves, heel) × part placement.
   Vessels are solid for the player (oriented boxes in `boat.landDistance`). Measured: ~0.1 ms CPU, no visible GPU cost.
 
-## Night mode
+## Night and weather (`src/world/environment.ts`, `src/weather/`)
 
-- `world/night.ts` `NIGHT.value` (0 day … 1 night) is the single source: `Environment.update` eases it over 3 s
-  when `environment.night` changes (Tuning → Environment, or N). Default is day.
-- The sun sinks to −12° so the Sky shader itself goes dark; stars (Points around the camera), faint moonlight,
-  dimmed environment map, night fog colour.
-- Lights are additive `Points` with constant screen size (`lightPointsMaterial`), so they stay visible far away:
-  vessel/boat navigation lights, harbour lights, quay street lamps, lighthouse lamps. Lighthouse beams brighten.
-- Windows glow from the shared building shader (`uNight` uniform): per-window hash, ~55% lit, warm tones.
+- Day by default; night mode (Tuning → Environment, or N) fades in over 3 s: `NIGHT.value` (0 day … 1 night) is the
+  single source for shaders and lights. The sky shader only knows day and black, so at night the sun sinks just
+  below the horizon (−1.2°, afterglow) and a dome around the camera (`fogDome`) fades in deep blue; stars on top.
+- `Weather` (pure, tested): clouds, rain, fog, gusts 0 … 1 drifting towards a type (clear, cloudy, rain, fog — only
+  in light wind — storm — only in strong wind); auto changes every 4–10 min, or fixed from Tuning. Effects: sky
+  cloud cover/density/turbidity, dimmer and flatter light, fog distance = visibility (the dome turns grey), wind
+  factor in storms, gust events in `Wind`, rain streaks around the camera (`world/rain.ts`, all in the vertex
+  shader, one draw call), drops running down the cabin windows (`rainyGlass`), rain hiss / drumming on the cabin
+  roof (ambience), rougher water, barometer, and the VHF weather report (rain, gusts, visibility/fog). The
+  reflected sky (PMREM, 128 px) is re-baked every ≥ 4 s when night or clouds changed.
+- Lights at night: additive `Points` with constant screen size (`lightPointsMaterial`): navigation lights, harbour
+  lights, street lamps, lighthouses; windows glow from the building shader (`uNight`).
 
 ## The yacht (`src/boat/`)
 
