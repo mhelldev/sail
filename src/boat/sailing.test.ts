@@ -5,6 +5,7 @@ import {
   heelAngle,
   polarFactor,
   relativeWind,
+  SAILING,
   stepSailing,
   windAngle,
   wrapDeg,
@@ -72,5 +73,16 @@ describe('stepSailing', () => {
     for (let i = 0; i < 120; i++) s = stepSailing(s, { steer: 1, sailUp: true, turbo: false }, 90, 10, 1 / 60);
     expect(s.heading).toBeGreaterThan(0);
     expect(s.heading).toBeLessThan(90);
+  });
+
+  it('motors with the sail down, and goes astern with the bow swinging the other way', () => {
+    let s = createSailingState(0);
+    for (let i = 0; i < 60 * 20; i++) s = stepSailing(s, { steer: 0, sailUp: false, turbo: false, motor: 1 }, 0, 10, 1 / 60);
+    expect(s.speed).toBeCloseTo(SAILING.motorSpeed, 1);
+    for (let i = 0; i < 60 * 20; i++) s = stepSailing(s, { steer: 0, sailUp: false, turbo: false, motor: -1 }, 0, 10, 1 / 60);
+    expect(s.speed).toBeCloseTo(-SAILING.motorAstern, 1);
+    const before = s.heading;
+    for (let i = 0; i < 60; i++) s = stepSailing(s, { steer: 1, sailUp: false, turbo: false, motor: -1 }, 0, 10, 1 / 60);
+    expect(wrapDeg(s.heading - before)).toBeLessThan(0); // rudder to starboard, going astern: bow to port
   });
 });

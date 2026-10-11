@@ -53,10 +53,19 @@ any more apart from the crosshair and the key help line: the instruments are a s
   turning). The first click also requests pointer lock (browsers require a click), Esc releases it.
   Right button held = zoom (FOV 20°, for reading the instruments).
 - Clicking (or tapping) the companionway door opens/closes it; clicking the chart plotter changes its range.
-  `WalkMode.clickables` (raycast, ≤ 3.8 m) — add more there.
+  `WalkMode.clickables` (raycast, ≤ 3.8 m) — add more there; `WalkMode.draggables` for things moved by dragging
+  (the throttle lever). Small targets get invisible, larger hit meshes (`MeshBasicMaterial({ visible: false })`).
+- Engine (`boat/engine.ts`, pure + tested): panel on the starboard cockpit wall right of the wheel — click the key
+  (ON: oil/battery lights), click START (cranks ~1 s; only in neutral), key OFF stops it. Throttle/gear lever just
+  forward of it: drag up = ahead, down = astern, released near upright it snaps to neutral. Burns fuel (60 L, ~20 min
+  flat out, game time), dies when dry and won't start again; R refuels. Fuel is saved. In `stepSailing` the motor
+  adds to the sails ahead (~6.6 kn alone), fights them astern, blows water past the rudder (steering at low speed),
+  and going astern the bow swings the other way. Gauges: `ui/engineDisplay.ts` (canvas, only redrawn when near).
 - Steering: with the wheel under the crosshair (within ~2.6 m) click and drag; the crosshair turns into a ring
   when it can be grabbed. The mouse moves a virtual hand (2.5× gain) that is raycast onto the wheel plane in the
   boat's frame; the angle turned around the axle sets the helm. Let go, the wheel stays put (no self-centering).
+  Like on a real wheel, the king spoke (red wrap + knob) is on top when the rudder is centred, and the instrument
+  screen has a rudder angle indicator (±35° nominal, `RUDDER_MAX_DEG`; redrawn faster while the wheel turns).
 - Touch: a virtual game pad (`ui/touchUi.ts` draws it, `person/walkMode.ts` handles the drags). Walking stick
   bottom left (it moves to wherever the thumb lands on the left half; full deflection runs; its resting spot
   always walks, even with the wheel's rim behind it), round Jump button bottom right (fires on touch-down),

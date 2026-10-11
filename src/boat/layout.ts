@@ -54,6 +54,13 @@ export const HELM = { z: 4.0, y: 1.55, radius: 0.5 };
 /** Where the helmsman stands. */
 export const HELM_STAND = { x: 0, z: COCKPIT.back - 0.3 }; // as far back as the body radius allows
 
+/**
+ * Engine controls on the starboard cockpit wall, right of the wheel: a panel (gauges on top, key and
+ * START button below) facing into the cockpit, and the single throttle/gear lever just forward of it.
+ */
+export const ENGINE_PANEL = { x: COCKPIT.halfWidth, y: 1.04, z: 4.3, width: 0.44, height: 0.3 };
+export const THROTTLE = { x: COCKPIT.halfWidth, y: 1.08, z: 3.72, length: 0.24, swing: 0.9 };
+
 /** Instrument panel on the deckhouse's aft wall, starboard of the door. */
 export const PANEL = { x: 0.85, y: 1.72, width: 0.8, height: 0.56, z: CABIN.back + 0.065 };
 

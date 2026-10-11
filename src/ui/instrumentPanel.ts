@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Boat } from '../boat/boat';
+import { RUDDER_MAX_DEG } from '../boat/helm';
 import { polarFactor, relativeWind, windAngle } from '../boat/sailing';
 import type { Harbor } from '../harbors/harborData';
 import type { Wind } from '../weather/wind';
@@ -13,6 +14,7 @@ const W = 1024;
 const H = 716; // same aspect as the screen on the boat (0.8 × 0.56 m)
 const MAP = 600; // chart plotter, square, top left
 const REFRESH = 0.2; // seconds between redraws (and texture uploads)
+const REFRESH_STEERING = 0.07; // faster while the wheel turns, so the rudder indicator keeps up
 
 const FONT = 'system-ui, -apple-system, sans-serif';
 const INK = '#e8f1f5';
@@ -60,6 +62,7 @@ export class InstrumentPanel {
   private readonly texture: THREE.CanvasTexture;
   private sinceDraw = Infinity;
   private mapDt = 0;
+  private drawnRudder = 0;
 
   constructor(private readonly chart: Minimap) {
     this.canvas.width = W;
@@ -78,7 +81,9 @@ export class InstrumentPanel {
   update(dt: number, boat: Boat, wind: Wind, nav: () => NavInfo, visible: boolean): void {
     this.sinceDraw += dt;
     this.mapDt += dt;
-    if (!visible || this.sinceDraw < REFRESH) return;
+    const steering = Math.abs(boat.helm.rudderAngle - this.drawnRudder) > 0.2;
+    if (!visible || this.sinceDraw < (steering ? REFRESH_STEERING : REFRESH)) return;
+    this.drawnRudder = boat.helm.rudderAngle;
     this.sinceDraw = 0;
     this.chart.update(this.mapDt, boat.position.x, boat.position.z, boat.state.heading);
     this.mapDt = 0;
@@ -145,15 +150,40 @@ export class InstrumentPanel {
     const angle = windAngle(heading, wind.direction);
     ctx.font = `600 28px ${FONT}`;
     ctx.fillStyle = boat.turbo ? ACCENT : INK;
-    ctx.fillText(boat.turbo ? 'TURBO' : boat.sailUp ? pointOfSail(angle) : 'Sail down', cx, 574);
+    ctx.fillText(boat.turbo ? 'TURBO' : boat.sailUp ? pointOfSail(angle) : 'Sail down', cx, 552);
+    const barX = x0 + 10;
     const barW = W - m - x0 - 20;
     ctx.fillStyle = '#1a2a35';
-    ctx.fillRect(x0 + 10, 598, barW, 16);
+    ctx.fillRect(barX, 568, barW, 12);
     ctx.fillStyle = '#5cc8a1';
-    ctx.fillRect(x0 + 10, 598, barW * (boat.sailUp ? polarFactor(angle) : 0), 16);
+    ctx.fillRect(barX, 568, barW * (boat.sailUp ? polarFactor(angle) : 0), 12);
     ctx.fillStyle = DIM;
-    ctx.font = `600 20px ${FONT}`;
-    ctx.fillText('SAIL TRIM', cx, 646);
+    ctx.font = `600 18px ${FONT}`;
+    ctx.fillText('SAIL TRIM', cx, 602);
+    this.rudderIndicator(barX, 622, barW, boat.helm.rudderAngle);
+  }
+
+  /** Rudder angle: a bar growing from the centre mark, red to port (left), green to starboard (right). */
+  private rudderIndicator(x: number, y: number, w: number, deg: number): void {
+    const ctx = this.ctx;
+    const h = 22;
+    const mid = x + w / 2;
+    ctx.fillStyle = '#1a2a35';
+    ctx.fillRect(x, y, w, h);
+    const k = deg / RUDDER_MAX_DEG;
+    ctx.fillStyle = k < 0 ? '#e0443e' : '#3fbf6a';
+    ctx.fillRect(Math.min(mid, mid + (k * w) / 2), y, Math.abs((k * w) / 2), h);
+    // Scale: centre and every 10°.
+    ctx.fillStyle = INK;
+    for (let d = -30; d <= 30; d += 10) {
+      const tx = mid + (d / RUDDER_MAX_DEG) * (w / 2);
+      ctx.fillRect(tx - (d === 0 ? 2 : 1), y - (d === 0 ? 6 : 3), d === 0 ? 4 : 2, d === 0 ? h + 12 : h + 6);
+    }
+    const a = Math.round(Math.abs(deg));
+    ctx.font = `600 22px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = a === 0 ? INK : k < 0 ? '#ff7b74' : '#6fe39a';
+    ctx.fillText(a === 0 ? 'RUDDER · MIDSHIPS' : `RUDDER ${a}° ${k < 0 ? 'PORT' : 'STBD'}`, mid, y + h + 34);
   }
 
   /** Text with a dark outline, readable on any map colour. */

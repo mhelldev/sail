@@ -36,6 +36,9 @@ export const SAILING = {
   maxHeel: 18, // degrees
   heelResponse: 0.8, // 1/s
   boomResponse: 1.5, // 1/s
+  motorSpeed: 3.4, // m/s (~6.6 kn) at full ahead
+  motorAstern: 1.8, // m/s at full astern
+  motorResponse: 0.35, // 1/s
 };
 
 /** Wrap degrees into (-180, 180]. */
@@ -88,6 +91,8 @@ export interface SailingInput {
   steer: number; // -1 (port) … 1 (starboard)
   sailUp: boolean;
   turbo: boolean;
+  /** engine thrust, -1 (full astern) … 1 (full ahead); 0 or omitted without the engine */
+  motor?: number;
 }
 
 export interface SailingState {
@@ -114,9 +119,13 @@ export function stepSailing(
   windSpeed: number,
   dt: number,
 ): SailingState {
-  // Steering: the rudder needs water flow, so turning is sluggish when slow.
-  const grip = 0.3 + 0.7 * Math.min(1, s.speed / 3);
-  const turnSpeed = approach(s.turnSpeed, input.steer * SAILING.turnRate * grip, SAILING.turnResponse, dt);
+  const motor = input.motor ?? 0;
+  // Steering: the rudder needs water flow, so turning is sluggish when slow — unless the propeller
+  // blows water past it. Going astern, the stern goes where the rudder points: the bow swings the other way.
+  const flow = Math.abs(s.speed) + Math.max(0, motor) * 2;
+  const grip = 0.3 + 0.7 * Math.min(1, flow / 3);
+  const astern = s.speed < -0.2 ? -1 : 1;
+  const turnSpeed = approach(s.turnSpeed, astern * input.steer * SAILING.turnRate * grip, SAILING.turnResponse, dt);
   const heading = (((s.heading + (turnSpeed * dt * 180) / Math.PI) % 360) + 360) % 360;
 
   let targetSpeed = 0;
@@ -124,7 +133,14 @@ export function stepSailing(
   else if (input.sailUp)
     targetSpeed =
       Math.min(SAILING.maxSpeed, windSpeed * polarFactor(windAngle(heading, windFromDeg))) * SAILING.speedMultiplier;
-  const speedRate = input.turbo ? 1 : SAILING.speedResponse;
+  // The engine: ahead it adds to the sails (the faster of the two, plus a little); astern it fights them.
+  if (!input.turbo && motor > 0) {
+    const m = motor * SAILING.motorSpeed;
+    targetSpeed = Math.max(targetSpeed, m) + 0.25 * Math.min(targetSpeed, m);
+  } else if (!input.turbo && motor < 0) {
+    targetSpeed = targetSpeed * 0.4 + motor * SAILING.motorAstern;
+  }
+  const speedRate = input.turbo ? 1 : motor !== 0 ? Math.max(SAILING.speedResponse, SAILING.motorResponse) : SAILING.speedResponse;
   const speed = approach(s.speed, targetSpeed, speedRate, dt);
 
   const targetHeel = input.sailUp && !input.turbo ? heelAngle(heading, windFromDeg, windSpeed) : 0;

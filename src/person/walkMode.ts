@@ -35,9 +35,19 @@ export interface Clickable {
   onClick: () => void;
 }
 
+/** Something on the boat that is held and moved up/down (forward/back), like the throttle lever. */
+export interface Draggable {
+  object: THREE.Object3D;
+  /** @param dy pointer movement in px since the last call; negative = up (pushing forward) */
+  onDrag: (dy: number) => void;
+  onRelease?: () => void;
+}
+
 export class WalkMode {
   /** door, chart plotter… (the wheel is handled separately: it's dragged) */
   readonly clickables: Clickable[] = [];
+  /** throttle lever… */
+  readonly draggables: Draggable[] = [];
   readonly person = new PersonController();
   /** helm position while the wheel is held by hand, otherwise null */
   steer: number | null = null;
@@ -61,6 +71,7 @@ export class WalkMode {
   // Wheel grab: the hand (crosshair or finger) as a screen point, the rim angle it holds and
   // the helm position at that moment.
   private grab: { pointer: number | 'mouse'; ndc: THREE.Vector2; angle: number; turned: number; helm: number } | null = null;
+  private dragging: { pointer: number | 'mouse'; target: Draggable; y: number } | null = null;
   private readonly raycaster = new THREE.Raycaster();
   private readonly ndc = new THREE.Vector2();
   // Touch: a finger on the left half walks (virtual joystick), one on the right half looks.
@@ -102,6 +113,10 @@ export class WalkMode {
     // edge; Esc releases it. Clicking with the wheel under the crosshair grabs it.
     document.addEventListener('mousemove', (e) => {
       this.mouseX = e.clientX;
+      if (this.dragging?.pointer === 'mouse') {
+        this.dragging.target.onDrag(e.movementY);
+        return;
+      }
       if (this.grab?.pointer === 'mouse') {
         this.grab.ndc.x += (e.movementX / window.innerWidth) * 2 * MOUSE_HAND;
         this.grab.ndc.y -= (e.movementY / window.innerHeight) * 2 * MOUSE_HAND;
@@ -116,7 +131,7 @@ export class WalkMode {
       if (e.pointerType === 'mouse') {
         if (document.pointerLockElement !== dom) dom.requestPointerLock?.()?.catch?.(() => {});
         if (e.button === 2) this.zoom = true;
-        if (e.button === 0 && !this.tryGrab('mouse', 0, 0)) this.click(0, 0);
+        if (e.button === 0 && !this.tryGrab('mouse', 0, 0) && !this.tryDrag('mouse', 0, 0, e.clientY)) this.click(0, 0);
         return;
       }
       // Touch: the wheel first, then walking on the left half, looking on the right half.
@@ -125,6 +140,7 @@ export class WalkMode {
       // The stick's resting spot (bottom left) always walks, even with the wheel's rim behind it.
       const onStick = e.clientX < 24 + JOYSTICK * 2 + 40 && e.clientY > window.innerHeight - (28 + JOYSTICK * 2 + 40);
       if (!onStick && !this.grab && this.tryGrab(e.pointerId, x, y)) return;
+      if (!onStick && !this.dragging && this.tryDrag(e.pointerId, x, y, e.clientY)) return;
       if (!onStick && this.click(x, y)) return;
       if (e.clientX < window.innerWidth / 2) {
         if (!this.joystick) this.joystick = { pointer: e.pointerId, x: e.clientX, y: e.clientY, forward: 0, right: 0 };
@@ -134,7 +150,10 @@ export class WalkMode {
     });
     dom.addEventListener('pointermove', (e) => {
       if (e.pointerType === 'mouse') return;
-      if (this.grab?.pointer === e.pointerId) {
+      if (this.dragging?.pointer === e.pointerId) {
+        this.dragging.target.onDrag(e.clientY - this.dragging.y);
+        this.dragging.y = e.clientY;
+      } else if (this.grab?.pointer === e.pointerId) {
         this.grab.ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
       } else if (this.joystick?.pointer === e.pointerId) {
         const j = this.joystick;
@@ -150,12 +169,21 @@ export class WalkMode {
       const id = e.pointerType === 'mouse' ? 'mouse' : e.pointerId;
       if (e.pointerType === 'mouse' && e.button === 2) this.zoom = false;
       if (this.grab?.pointer === id) this.grab = null;
+      if (this.dragging?.pointer === id) {
+        this.dragging.target.onRelease?.();
+        this.dragging = null;
+      }
       if (this.joystick?.pointer === e.pointerId) this.joystick = null;
       if (this.lookFinger?.pointer === e.pointerId) this.lookFinger = null;
     };
     window.addEventListener('pointerup', release);
     window.addEventListener('pointercancel', release);
     dom.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  /** Holding the wheel or a lever (for the crosshair). */
+  get holding(): boolean {
+    return this.steer !== null || this.dragging !== null;
   }
 
   /** The walking stick while a finger holds it: where it was put down (px) and the deflection (-1…1). */
@@ -265,19 +293,31 @@ export class WalkMode {
     return Math.atan2(dy, dx);
   }
 
-  /** The clickable under a screen point (NDC), if within reach. */
-  private clickableAt(x: number, y: number): Clickable | undefined {
+  /** The clickable or draggable under a screen point (NDC), if within reach. */
+  private pick<T extends { object: THREE.Object3D }>(list: T[], x: number, y: number): T | undefined {
+    if (!list.length) return undefined;
     this.ndc.set(x, y);
     this.raycaster.setFromCamera(this.ndc, this.camera);
     this.raycaster.far = CLICK_REACH;
-    const hits = this.raycaster.intersectObjects(this.clickables.map((c) => c.object), true);
+    const hits = this.raycaster.intersectObjects(list.map((c) => c.object), true);
     this.raycaster.far = Infinity;
     if (!hits.length) return undefined;
-    return this.clickables.find((c) => {
+    return list.find((c) => {
       let o: THREE.Object3D | null = hits[0].object;
       while (o && o !== c.object) o = o.parent;
       return o === c.object;
     });
+  }
+
+  private clickableAt(x: number, y: number): Clickable | undefined {
+    return this.pick(this.clickables, x, y);
+  }
+
+  private tryDrag(pointer: number | 'mouse', x: number, y: number, clientY: number): boolean {
+    if (this.person.mode === 'swim') return false;
+    const target = this.pick(this.draggables, x, y);
+    if (target) this.dragging = { pointer, target, y: clientY };
+    return !!target;
   }
 
   private click(x: number, y: number): boolean {
@@ -313,7 +353,7 @@ export class WalkMode {
       this.steer = null;
     }
     this.ndc.set(0, 0);
-    this.canGrab = !g && this.person.mode !== 'swim' && (this.wheelAngleAt(this.ndc, true) !== null || !!this.clickableAt(0, 0));
+    this.canGrab = !g && !this.dragging && this.person.mode !== 'swim' && (this.wheelAngleAt(this.ndc, true) !== null || !!this.clickableAt(0, 0) || !!this.pick(this.draggables, 0, 0));
   }
 }
 

@@ -4,6 +4,9 @@
 /** Wheel rotation at full lock, in radians (¾ turn each way). */
 export const WHEEL_LOCK = Math.PI * 1.5;
 
+/** Rudder angle at full lock, in degrees (shown on the rudder indicator). */
+export const RUDDER_MAX_DEG = 35;
+
 const KEY_RATE = 2.2; // helm travel per second while a steering key is held
 const RETURN_RATE = 1.6; // travel per second back to centre once let go
 
@@ -26,6 +29,11 @@ export class Helm {
       const step = RETURN_RATE * dt;
       this.position = Math.abs(this.position) <= step ? 0 : this.position - Math.sign(this.position) * step;
     }
+  }
+
+  /** Rudder angle in degrees: negative = to port. */
+  get rudderAngle(): number {
+    return this.position * RUDDER_MAX_DEG;
   }
 
   /** Wheel rotation as seen by the helmsman: positive = clockwise (turning to starboard). */

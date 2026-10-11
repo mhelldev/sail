@@ -4,7 +4,7 @@ import { addCabinProps } from './cabinProps';
 import { Parts, type Rect } from './parts';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
-  BENCH, CABIN, COCKPIT, DOOR, FRONT_WINDOWS, HALF_BEAM, HELM, LENGTH, MAST_TOP, MAST_Z, PANEL, RAIL, SETTEE, SIDE_WINDOW, STAIRS, TABLE,
+  BENCH, CABIN, COCKPIT, DOOR, ENGINE_PANEL, FRONT_WINDOWS, HALF_BEAM, HELM, LENGTH, MAST_TOP, MAST_Z, PANEL, RAIL, SETTEE, SIDE_WINDOW, STAIRS, TABLE, THROTTLE,
   deckY, halfWidth, keelY, stationT, stationZ,
 } from './layout';
 
@@ -205,6 +205,11 @@ export class BoatModel {
   readonly door = new THREE.Group();
   /** the instruments' screen on the deckhouse's aft wall; its material comes from the instruments */
   readonly panel: THREE.Mesh;
+  /** engine controls (clicked or dragged in first person) and the gauge screen above them */
+  readonly key = new THREE.Group();
+  readonly startButton = new THREE.Group();
+  readonly lever = new THREE.Group();
+  readonly engineScreen: THREE.Mesh;
   /** companionway open (target; the door and hatch move there over ~0.6 s) */
   doorOpen = false;
   private doorAmount = 0;
@@ -330,6 +335,14 @@ export class BoatModel {
     const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.12), dark);
     hub.rotation.x = Math.PI / 2;
     this.wheel.add(hub);
+    // King spoke: the spoke on top when the rudder is centred, wrapped in red with a knob at the rim,
+    // like the Turk's head knot on a real wheel.
+    const kingMat = new THREE.MeshStandardMaterial({ color: 0xc0262d, roughness: 0.7 });
+    const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.12, 10), kingMat);
+    wrap.position.y = HELM.radius - 0.1;
+    const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.026, 0.1, 10), kingMat);
+    knob.position.y = HELM.radius + 0.06;
+    this.wheel.add(wrap, knob);
     this.tilt.add(this.wheel);
 
     // Companionway door, hinged on its port side; it swings out and folds back against the wall.
@@ -351,6 +364,51 @@ export class BoatModel {
     this.panel = new THREE.Mesh(new THREE.PlaneGeometry(PANEL.width, PANEL.height), new THREE.MeshBasicMaterial({ color: 0x0b1d2a }));
     this.panel.position.set(PANEL.x, PANEL.y, PANEL.z);
     this.tilt.add(this.panel);
+
+    // Engine panel on the starboard cockpit wall, facing into the cockpit (-X): gauges on top (a
+    // screen drawn by the engine display), key switch and START button below.
+    const E = ENGINE_PANEL;
+    const face = E.x - 0.02;
+    parts.box(dark, face, E.x, E.y - E.height / 2, E.y + E.height / 2, E.z - E.width / 2, E.z + E.width / 2);
+    this.engineScreen = new THREE.Mesh(
+      new THREE.PlaneGeometry(E.width - 0.03, E.height * 0.56).rotateY(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0x0b1d2a }),
+    );
+    this.engineScreen.position.set(face - 0.001, E.y + E.height * 0.18, E.z);
+    this.tilt.add(this.engineScreen);
+    const lowY = E.y - E.height * 0.28;
+    // Key switch: a chrome bezel with the key in it; the key turns a quarter to ON.
+    const bezel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.012, 16).rotateZ(Math.PI / 2), metal);
+    bezel.position.set(face - 0.006, lowY, E.z - 0.1);
+    this.key.position.set(face - 0.012, lowY, E.z - 0.1);
+    const keyMat = new THREE.MeshStandardMaterial({ color: 0xd8c27a, roughness: 0.3, metalness: 0.8 });
+    const keyHead = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.05, 0.03), keyMat);
+    keyHead.position.x = -0.02;
+    const keyFob = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.05, 0.035), new THREE.MeshStandardMaterial({ color: 0xc0262d, roughness: 0.6 }));
+    keyFob.position.set(-0.02, -0.055, 0);
+    this.key.add(keyHead, keyFob);
+    // START button: a black push button in a green ring.
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.01, 16).rotateZ(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x2f9e44, roughness: 0.5 }));
+    ring.position.set(face - 0.005, lowY, E.z + 0.1);
+    this.startButton.add(new THREE.Mesh(new THREE.CylinderGeometry(0.021, 0.021, 0.02, 16).rotateZ(Math.PI / 2), dark));
+    this.startButton.position.set(face - 0.012, lowY, E.z + 0.1);
+    this.tilt.add(bezel, this.key, ring, this.startButton);
+
+    // Throttle/gear lever on a chrome base: upright = neutral, forward = ahead, back = astern.
+    const T2 = THROTTLE;
+    parts.box(metal, T2.x - 0.02, T2.x, T2.y - 0.07, T2.y + 0.07, T2.z - 0.05, T2.z + 0.05);
+    this.lever.position.set(T2.x - 0.05, T2.y, T2.z);
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.014, T2.length, 8).translate(0, T2.length / 2, 0), metal);
+    const grip = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 8).translate(0, T2.length, 0), dark);
+    const hubL = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.06, 12).rotateZ(Math.PI / 2), metal);
+    this.lever.add(arm, grip, hubL);
+    // Small things are hard to hit with a crosshair: invisible, larger targets for the raycast.
+    const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+    const hit = (w: number, h: number, d: number, y = 0) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d).translate(0, y, 0), hitMat);
+    this.lever.add(hit(0.14, T2.length + 0.1, 0.14, T2.length / 2));
+    this.key.add(hit(0.06, 0.12, 0.09, -0.02));
+    this.startButton.add(hit(0.06, 0.09, 0.09));
+    this.tilt.add(this.lever);
 
     // Railing: stanchions along the deck edge, two wires, a pulpit at the bow, a gate at the stern.
     const railPoint = (t: number, side: number, h: number) =>
@@ -439,6 +497,16 @@ export class BoatModel {
     // Glass lets the sun in. The screen glows by itself and must not get shadow speckles.
     this.panes.castShadow = false;
     this.panel.castShadow = this.panel.receiveShadow = false;
+    this.engineScreen.castShadow = this.engineScreen.receiveShadow = false;
+  }
+
+  /**
+   * Engine controls as they should look: key at ON, START pushed in (cranking), lever position -1 … 1.
+   */
+  setEngineControls(keyOn: boolean, startPressed: boolean, lever: number): void {
+    this.key.rotation.x = keyOn ? -Math.PI / 2 : 0;
+    this.startButton.position.x = ENGINE_PANEL.x - 0.02 - (startPressed ? 0.004 : 0.012);
+    this.lever.rotation.x = -lever * THROTTLE.swing;
   }
 
   /** Door and hatch fully open: the companionway can be walked through. */

@@ -8,6 +8,8 @@ export interface SavedBoat {
   lon: number;
   heading: number;
   sailUp: boolean;
+  /** litres in the tank (missing in old saves: full) */
+  fuel?: number;
 }
 
 export function loadBoat(): SavedBoat | undefined {
@@ -16,7 +18,8 @@ export function loadBoat(): SavedBoat | undefined {
     if (!raw) return undefined;
     const v = JSON.parse(raw) as Partial<SavedBoat>;
     if ([v.lat, v.lon, v.heading].every((n) => typeof n === 'number' && Number.isFinite(n))) {
-      return { lat: v.lat!, lon: v.lon!, heading: v.heading!, sailUp: v.sailUp !== false };
+      const fuel = typeof v.fuel === 'number' && Number.isFinite(v.fuel) ? v.fuel : undefined;
+      return { lat: v.lat!, lon: v.lon!, heading: v.heading!, sailUp: v.sailUp !== false, fuel };
     }
   } catch {
     // ignore unreadable storage

@@ -11,7 +11,7 @@ export class Hud {
     el.innerHTML = `
       <div class="hud-help">
         <b>↑↓←→</b> or <b>WASD</b> walk · <b>Shift</b> run · <b>Space</b> jump / climb · mouse to look, <b>right button</b> zoom ·
-        <b>click + drag</b> the wheel to steer · <b>click</b> door / chart plotter · <b>E</b> sail up/down · <b>T</b> turbo ·
+        <b>click + drag</b> the wheel to steer · <b>click</b> door / chart plotter / engine key + START · <b>drag</b> the throttle lever · <b>E</b> sail up/down · <b>T</b> turbo ·
         <b>B</b> back aboard · <b>M</b> chart range · <b>V</b> sound · <b>N</b> night · <b>R</b> start · <b>G</b> tuning
       </div>
       <div class="crosshair" data-crosshair></div>`;

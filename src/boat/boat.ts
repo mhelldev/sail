@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { heightAt, type WaveField } from '../water/waves';
 import type { Wind } from '../weather/wind';
 import { depenetrate, findOpenWater, resolveMotion, type HullShape, type SignedDistanceFn } from './collision';
+import { Engine } from './engine';
 import { Helm } from './helm';
 import { HALF_BEAM, LENGTH } from './layout';
 import { BoatModel, PROBES } from './model';
@@ -22,6 +23,8 @@ export class Boat {
   readonly position = new THREE.Vector3();
   /** Steering wheel; the rudder follows it. */
   readonly helm = new Helm();
+  /** Auxiliary diesel: key, START, throttle/gear lever, fuel. */
+  readonly engine = new Engine();
   private pitch = 0;
   private roll = 0;
   private heave = 0;
@@ -46,10 +49,12 @@ export class Boat {
    */
   update(dt: number, time: number, wind: Wind, waves: WaveField, grip: number | null = null): void {
     this.helm.update(dt, 0, grip, false);
+    this.engine.update(dt);
+    this.model.setEngineControls(this.engine.ignition, this.engine.cranking > 0, this.engine.lever);
 
     this.state = stepSailing(
       this.state,
-      { steer: this.helm.position, sailUp: this.sailUp, turbo: this.turbo },
+      { steer: this.helm.position, sailUp: this.sailUp, turbo: this.turbo, motor: this.engine.thrust },
       wind.direction,
       wind.speed,
       dt,

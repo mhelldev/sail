@@ -20,6 +20,7 @@ import { createTerrainSampler, DEFAULT_TERRAIN, type TerrainParams } from './ter
 import { TerrainManager } from './terrain/terrainManager';
 import { FpsCounter } from './ui/fps';
 import { Hud } from './ui/hud';
+import { EngineDisplay } from './ui/engineDisplay';
 import { InstrumentPanel } from './ui/instrumentPanel';
 import { Minimap } from './ui/minimap';
 import { TouchUi } from './ui/touchUi';
@@ -125,6 +126,10 @@ function resetBoat(): void {
   boat.state = { ...boat.state, heading: (wind.direction + 90) % 360, speed: 0, turnSpeed: 0 };
   boat.helm.position = 0;
   boat.sailUp = true;
+  // Back at the start: engine off, lever in neutral, tank full.
+  if (boat.engine.ignition) boat.engine.toggleKey();
+  boat.engine.setLever(0);
+  boat.engine.refuel();
   boat.placeInWater();
 }
 
@@ -134,6 +139,7 @@ if (saved) {
   boat.position.set(p.x, 0, p.z);
   boat.state = { ...boat.state, heading: saved.heading };
   boat.sailUp = saved.sailUp;
+  if (saved.fuel !== undefined) boat.engine.fuel = saved.fuel;
   boat.placeInWater();
 } else {
   resetBoat();
@@ -141,7 +147,7 @@ if (saved) {
 
 const persist = () => {
   const g = projection.toGeo(boat.position.x, boat.position.z);
-  saveBoat({ lat: g.lat, lon: g.lon, heading: boat.state.heading, sailUp: boat.sailUp });
+  saveBoat({ lat: g.lat, lon: g.lon, heading: boat.state.heading, sailUp: boat.sailUp, fuel: boat.engine.fuel });
 };
 window.setInterval(persist, 5000);
 window.addEventListener('pagehide', persist);
@@ -156,7 +162,21 @@ walk.enter();
 walk.clickables.push(
   { object: boat.model.door, onClick: () => (boat.model.doorOpen = !boat.model.doorOpen) },
   { object: boat.model.panel, onClick: () => minimap.zoom() },
+  // Engine: key ON/OFF, START (only with the key on and the lever in neutral).
+  { object: boat.model.key, onClick: () => boat.engine.toggleKey() },
+  { object: boat.model.startButton, onClick: () => boat.engine.pressStart() },
 );
+// Throttle/gear lever: drag up (push forward) for ahead, down for astern; let go near upright and
+// it clicks into neutral.
+walk.draggables.push({
+  object: boat.model.lever,
+  onDrag: (dy) => boat.engine.setLever(boat.engine.lever - dy * 0.006),
+  onRelease: () => {
+    if (boat.engine.inNeutral) boat.engine.setLever(0);
+  },
+});
+const engineDisplay = new EngineDisplay();
+boat.model.engineScreen.material = engineDisplay.material;
 const hud = new Hud(app);
 const minimap = new Minimap(coastline, harborData, () => traffic.vessels, 600);
 // The instruments (chart plotter, wind, log) are a screen on the boat, next to the companionway door.
@@ -246,10 +266,6 @@ function frame(timestamp: number): void {
     clearSavedBoat();
     resetBoat();
     walk.enter();
-walk.clickables.push(
-  { object: boat.model.door, onClick: () => (boat.model.doorOpen = !boat.model.doorOpen) },
-  { object: boat.model.panel, onClick: () => minimap.zoom() },
-);
   }
 
   wind.update(time);
@@ -261,16 +277,12 @@ walk.clickables.push(
   // B: back aboard, behind the wheel (after a swim or a walk ashore). After the boat update, so
   // the person lands on this frame's deck.
   if (input.wasPressed('KeyB')) walk.enter();
-walk.clickables.push(
-  { object: boat.model.door, onClick: () => (boat.model.doorOpen = !boat.model.doorOpen) },
-  { object: boat.model.panel, onClick: () => minimap.zoom() },
-);
   const fwd = boat.forward();
-  wake.update(boat.position.x - fwd.x * 5.8, boat.position.z - fwd.z * 5.8, boat.state.speed);
+  wake.update(boat.position.x - fwd.x * 5.8, boat.position.z - fwd.z * 5.8, Math.abs(boat.state.speed));
   wakeMap.render(renderer, wake, boat.position.x, boat.position.z);
   water.setBoat(boat.position.x, boat.position.z, boat.state.heading, boat.state.speed);
   walk.update(dt, time, input);
-  hud.setHand(walk.steer !== null ? 'grip' : walk.canGrab ? 'open' : 'none');
+  hud.setHand(walk.holding ? 'grip' : walk.canGrab ? 'open' : 'none');
   // The world is built around the player, who may have walked or swum away from the boat.
   const me = walk.position;
   water.update(time, me.x, me.z);
@@ -298,6 +310,7 @@ walk.clickables.push(
     }),
     camera.position.distanceTo(boat.position) < 60,
   );
+  engineDisplay.update(dt, boat.engine, camera.position.distanceTo(boat.position) < 30);
 
 
   renderer.render(scene, camera);
