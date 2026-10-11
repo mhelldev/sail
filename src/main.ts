@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import GUI from 'lil-gui';
+import { DoorSound } from './audio/doorSound';
+import { EngineSound } from './audio/engineSound';
 import { SeaSound } from './audio/seaSound';
 import { Boat } from './boat/boat';
 import { SAILING } from './boat/sailing';
@@ -160,7 +162,13 @@ scene.add(coastLines.object);
 const walk = new WalkMode(camera, renderer.domElement, boat, waves, terrain, harbors);
 walk.enter();
 walk.clickables.push(
-  { object: boat.model.door, onClick: () => (boat.model.doorOpen = !boat.model.doorOpen) },
+  {
+    object: boat.model.door,
+    onClick: () => {
+      boat.model.doorOpen = !boat.model.doorOpen;
+      doorSound.play(boat.model.doorOpen, seaSound.muted);
+    },
+  },
   { object: boat.model.panel, onClick: () => minimap.zoom() },
   // Engine: key ON/OFF, START (only with the key on and the lever in neutral).
   { object: boat.model.key, onClick: () => boat.engine.toggleKey() },
@@ -186,6 +194,8 @@ const fps = new FpsCounter(app);
 const touchUi = new TouchUi(app, input);
 const BASE = import.meta.env.BASE_URL;
 const seaSound = new SeaSound({ ogg: `${BASE}sounds/sealoop.ogg`, m4a: `${BASE}sounds/sealoop.m4a` });
+const doorSound = new DoorSound(`${BASE}sounds/door.mp3`);
+const engineSound = new EngineSound({ ignition: `${BASE}sounds/ignition.m4a`, engine: `${BASE}sounds/engine.m4a` });
 
 // Debug / tuning panel (press G to toggle).
 const gui = new GUI({ title: 'Tuning' });
@@ -235,7 +245,8 @@ trafficFolder.add({ get vessels() { return traffic.vessels.length; } }, 'vessels
 const environmentFolder = gui.addFolder('Environment');
 environmentFolder.add(environment, 'night').name('night (N)').listen();
 const soundFolder = gui.addFolder('Sound');
-soundFolder.add(seaSound, 'volume', 0, 2, 0.05);
+soundFolder.add(seaSound, 'volume', 0, 2, 0.05).name('sea volume');
+soundFolder.add(engineSound, 'volume', 0, 2, 0.05).name('engine volume');
 soundFolder.add(seaSound, 'muted').name('muted (V)').listen();
 const debugFolder = gui.addFolder('Debug');
 debugFolder.add(coastLines.object, 'visible').name('coastline lines (C)').listen();
@@ -311,6 +322,7 @@ function frame(timestamp: number): void {
     camera.position.distanceTo(boat.position) < 60,
   );
   engineDisplay.update(dt, boat.engine, camera.position.distanceTo(boat.position) < 30);
+  engineSound.update(boat.engine, camera.position.distanceTo(boat.object.position), seaSound.muted);
 
 
   renderer.render(scene, camera);
@@ -319,4 +331,4 @@ function frame(timestamp: number): void {
 renderer.setAnimationLoop(frame);
 
 // Dev-only handle for poking at the scene from the browser console.
-if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, seaSound, traffic, trafficRenderer, environment, walk, input, frame } });
+if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, seaSound, engineSound, traffic, trafficRenderer, environment, walk, input, frame } });

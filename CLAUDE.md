@@ -61,6 +61,12 @@ any more apart from the crosshair and the key help line: the instruments are a s
   flat out, game time), dies when dry and won't start again; R refuels. Fuel is saved. In `stepSailing` the motor
   adds to the sails ahead (~6.6 kn alone), fights them astern, blows water past the rudder (steering at low speed),
   and going astern the bow swings the other way. Gauges: `ui/engineDisplay.ts` (canvas, only redrawn when near).
+- Sounds share one AudioContext (`audio/audioHub.ts`, created on the first gesture). `audio/engineSound.ts`: the
+  ignition recording plays when the key goes ON, START fades it into the engine loop (made seamless by cross-fading
+  its tail into its head), louder and slightly higher with the throttle, quieter with distance. Files in
+  `public/sounds/` as AAC .m4a (this ffmpeg has no Vorbis encoder; AAC decodes in all target browsers).
+  `audio/doorSound.ts`: door.mp3 holds opening (start) and closing (end); each click plays its part, the close
+  delayed so the slam lands when the door animation shuts.
 - Steering: with the wheel under the crosshair (within ~2.6 m) click and drag; the crosshair turns into a ring
   when it can be grabbed. The mouse moves a virtual hand (2.5× gain) that is raycast onto the wheel plane in the
   boat's frame; the angle turned around the axle sets the helm. Let go, the wheel stays put (no self-centering).

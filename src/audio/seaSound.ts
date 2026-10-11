@@ -1,7 +1,7 @@
 // Looping sea ambience (sealoop from the Godot game). Web Audio rather than an <audio> element,
-// because only a buffer source loops without a gap. Browsers only allow audio after a user
-// gesture, so it starts on the first key press, click or tap — and is resumed on later gestures
-// if the browser suspended it again (iOS does after calls or app switches).
+// because only a buffer source loops without a gap. Starts once audio is allowed (see audioHub).
+
+import { loadBuffer, whenAudioReady } from './audioHub';
 
 const BASE_GAIN = 0.12; // about -18 dB
 const FADE = 0.6; // seconds, time constant for volume changes
@@ -20,24 +20,31 @@ export function seaGain(seaState: number, cameraHeight: number, volume: number, 
 export class SeaSound {
   /** 0…2 from the tuning panel. */
   volume = 1;
+  /** mutes all game sounds (V) */
   muted = false;
 
   private ctx?: AudioContext;
   private gain?: GainNode;
-  private starting = false;
 
-  constructor(private readonly urls: { ogg: string; m4a: string }) {
-    const gesture = () => {
-      if (!this.ctx) void this.start();
-      else if (this.ctx.state === 'suspended' && !document.hidden) void this.ctx.resume();
-    };
-    window.addEventListener('keydown', gesture);
-    window.addEventListener('pointerdown', gesture);
-    // No sound (and no battery use) while the tab is in the background.
-    document.addEventListener('visibilitychange', () => {
-      if (!this.ctx) return;
-      if (document.hidden) void this.ctx.suspend();
-      else void this.ctx.resume();
+  constructor(urls: { ogg: string; m4a: string }) {
+    whenAudioReady(async (ctx) => {
+      try {
+        // Safari (especially iOS) may not decode Ogg Vorbis: use the AAC copy there.
+        const ogg = new Audio().canPlayType('audio/ogg; codecs="vorbis"') !== '';
+        const buffer = await loadBuffer(ctx, ogg ? urls.ogg : urls.m4a);
+        const gain = ctx.createGain();
+        gain.gain.value = 0; // fades in through update()
+        gain.connect(ctx.destination);
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.loop = true;
+        source.connect(gain);
+        source.start();
+        this.ctx = ctx;
+        this.gain = gain;
+      } catch (err) {
+        console.warn('sea sound unavailable', err);
+      }
     });
   }
 
@@ -48,32 +55,5 @@ export class SeaSound {
   update(seaState: number, cameraHeight: number): void {
     if (!this.ctx || !this.gain) return;
     this.gain.gain.setTargetAtTime(seaGain(seaState, cameraHeight, this.volume, this.muted), this.ctx.currentTime, FADE);
-  }
-
-  private async start(): Promise<void> {
-    if (this.ctx || this.starting) return;
-    this.starting = true;
-    try {
-      // Created synchronously inside the gesture, which is what lets it play.
-      const ctx = new AudioContext();
-      // Safari (especially iOS) may not decode Ogg Vorbis: use the AAC copy there.
-      const ogg = new Audio().canPlayType('audio/ogg; codecs="vorbis"') !== '';
-      const data = await fetch(ogg ? this.urls.ogg : this.urls.m4a).then((r) => r.arrayBuffer());
-      const buffer = await ctx.decodeAudioData(data);
-      const gain = ctx.createGain();
-      gain.gain.value = 0; // fades in through update()
-      gain.connect(ctx.destination);
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.loop = true;
-      source.connect(gain);
-      source.start();
-      this.ctx = ctx;
-      this.gain = gain;
-    } catch (err) {
-      console.warn('sea sound unavailable', err);
-    } finally {
-      this.starting = false;
-    }
   }
 }
