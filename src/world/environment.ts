@@ -98,7 +98,9 @@ export class Environment {
 
   /** Call once per frame. */
   update(dt: number, camera: THREE.Camera, input: SkyInput): void {
-    // Stars and the fog dome sit around the camera (they must not move with the boat).
+    // Sky, stars and the fog dome sit around the camera (they must not move with the boat). The sky box
+    // too: left at the origin, its far side falls behind the far plane once you are ~30 km out.
+    this.sky.position.copy(camera.position);
     this.stars.position.copy(camera.position);
     this.fogDome.position.copy(camera.position);
     const { clouds, fog, rain } = input.weather;

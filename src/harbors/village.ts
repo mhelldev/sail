@@ -5,10 +5,12 @@
 import alea from 'alea';
 import type { Harbor } from './harborData';
 import { MARINA_HOUSE } from './marinaHouse';
+import { SHOP } from './shop';
 
 export type PartType =
   | 'house'
   | 'marinaHouse'
+  | 'shop'
   | 'roof'
   | 'chimney'
   | 'tower'
@@ -71,6 +73,8 @@ export interface Village {
   fuel?: { x: number; y: number; z: number };
   /** the marina house (harbour office) you can walk into; drawn by `MarinaHouses` when near */
   marinaHouse?: MarinaHouseSite;
+  /** the supermarket on the other side of the pier root; drawn by `MarinaHouses` when near */
+  shop?: MarinaHouseSite;
 }
 
 /** Base of the marina house: centre of its footprint at ground level, front (local +Z) facing the sea. */
@@ -119,6 +123,7 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
   const lights: Village['lights'] = [];
   let fuel: Village['fuel'];
   let marinaHouse: Village['marinaHouse'];
+  let shop: Village['shop'];
   const add = (p: Part) => parts.push(p);
   const big = h.isHarbour;
 
@@ -305,6 +310,19 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
     }
   }
 
+  // The supermarket on the other side of the pier root, also facing the sea; a low roof on top.
+  {
+    const p = at(-11, -13);
+    if (buildable(p.x, p.z, 6.5, 5)) {
+      occupied.push({ x: p.x, z: p.z, r: 6.5 });
+      const y = ground.height(p.x, p.z) - 0.3;
+      const { width, depth, height } = SHOP;
+      add({ type: 'shop', x: p.x, y, z: p.z, rotY: seaward, sx: width, sy: height, sz: depth, color: SHOP.color });
+      add({ type: 'roof', x: p.x, y: y + height, z: p.z, rotY: alongShore, sx: depth + 0.6, sy: 1.6, sz: width + 0.6, color: 0x9c3b25 });
+      shop = { x: p.x, y, z: p.z, rotY: seaward };
+    }
+  }
+
   // Landmarks first, so the house rows don't take their lots.
   const quay = big ? rand(80, 150) : rand(45, 90);
   const street = big ? rand(220, 380) : rand(110, 220);
@@ -388,7 +406,7 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
     i++;
   }
 
-  return { harborId: h.id, parts, obstacles, mills, lighthouses, lights, fuel, marinaHouse };
+  return { harborId: h.id, parts, obstacles, mills, lighthouses, lights, fuel, marinaHouse, shop };
 }
 
 /** Signed distance to an obstacle box: positive inside (like land), negative outside. */

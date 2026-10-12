@@ -28,7 +28,7 @@ const UPPER_WINDOW = { width: 1.1, bottom: 4.35, top: 5.55 };
 
 const srgb = (hex: number) => new THREE.Color(hex);
 
-function canvasTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture {
+export function canvasTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
@@ -36,7 +36,7 @@ function canvasTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture {
 }
 
 /** Box from (x0, y0, z0) to (x1, y1, z1) in house coordinates. */
-function slab(x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): THREE.BufferGeometry {
+export function slab(x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): THREE.BufferGeometry {
   return new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0).translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
 }
 
@@ -44,7 +44,7 @@ function slab(x0: number, x1: number, y0: number, y1: number, z0: number, z1: nu
  * Inside wall face: a vertical quad from (x0, z0) to (x1, z1) between y0 and y1, facing `normal`
  * side, with baked shading — darker towards the floor and the ceiling corners, `tone` overall.
  */
-function wallFace(x0: number, z0: number, x1: number, z1: number, y0: number, y1: number, tone: number): THREE.BufferGeometry {
+export function wallFace(x0: number, z0: number, x1: number, z1: number, y0: number, y1: number, tone: number): THREE.BufferGeometry {
   const rows = [y0, y0 + 0.35, (y0 + y1) / 2, y1 - 0.3, y1].filter((y) => y >= y0 && y <= y1);
   const pos: number[] = [];
   const col: number[] = [];

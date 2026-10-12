@@ -155,6 +155,13 @@ any more apart from the crosshair and the key help line: the instruments are a s
   Thumbnails (500 px) come from upload.wikimedia.org (CORS ok) and are prefetched within 3 km, kept in Cache
   Storage (`marina-gallery-v1`; needs https/localhost) so visited marinas work offline. Missing photos (nothing
   found, offline) become procedural seascape paintings; no article → a short welcome text.
+- Supermarket (`Village.shop`, on the other side of the pier root, also facing the sea): from afar a 'shop' box
+  with a low roof; within 350 m `MarinaHouses` (which handles both buildings, keyed `${harbourId}:office|shop`)
+  swaps in `shopModel.ts` — shop windows under striped awnings, a glass door (click, door.mp3), a lit
+  "SUPERMARKET" board, and inside fruit and vegetables in crates, a bread rack, a pallet of water packs, shelves of
+  groceries, a checkout. Layout, furniture boxes and walk surfaces in `shop.ts` (pure, tested). All furniture and
+  goods are one vertex-coloured unlit mesh (~130k vertices), written straight into typed arrays (per-item
+  geometries took ~50 ms), shared by every shop and pre-built while the browser is idle.
 - GPU timing is noisy (clock changes): compare with/without by alternating several batches and using medians.
 
 ## Generated traffic (`src/traffic/`)
@@ -173,6 +180,8 @@ any more apart from the crosshair and the key help line: the instruments are a s
 
 ## Night and weather (`src/world/environment.ts`, `src/weather/`)
 
+- The sky box, stars and fog dome are re-centred on the camera every frame (a sky box left at the origin loses
+  its far side behind the far plane once you are ~30 km out).
 - Day by default; night mode (Tuning → Environment, or N) fades in over 3 s: `NIGHT.value` (0 day … 1 night) is the
   single source for shaders and lights. The sky shader only knows day and black, so at night the sun sinks just
   below the horizon (−1.2°, afterglow) and a dome around the camera (`fogDome`) fades in deep blue; stars on top.

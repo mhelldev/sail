@@ -9,7 +9,7 @@ const ground: Ground = {
 };
 const harbor = (id: number, isHarbour: boolean): Harbor => ({ id, name: `Test ${id}`, lat: 0, lon: 0, x: 0, z: 0, seaX: 1, seaZ: 0, isHarbour });
 
-const LAND = new Set(['house', 'marinaHouse', 'roof', 'chimney', 'tower', 'spire', 'trunk', 'crown', 'conifer', 'flagpole', 'flag', 'millTower', 'millCap', 'lampPost']);
+const LAND = new Set(['house', 'marinaHouse', 'shop', 'roof', 'chimney', 'tower', 'spire', 'trunk', 'crown', 'conifer', 'flagpole', 'flag', 'millTower', 'millCap', 'lampPost']);
 const WATER = new Set(['deck', 'pile', 'pontoon', 'breakwater', 'rock', 'hull', 'mast', 'cabin', 'harbourLight']);
 
 describe('generateVillage', () => {
@@ -60,6 +60,19 @@ describe('marina house', () => {
       // Front (local +Z) points out to sea (+X here).
       expect(Math.sin(v.marinaHouse.rotY)).toBeCloseTo(1);
       expect(ground.sd(v.marinaHouse.x, v.marinaHouse.z)).toBeGreaterThan(5);
+    }
+    expect(found).toBe(20);
+  });
+
+  it('has a supermarket next to it, facing the sea, not overlapping', () => {
+    let found = 0;
+    for (let id = 0; id < 20; id++) {
+      const v = generateVillage(harbor(id, id % 2 === 0), ground, { hasRealLighthouse: true });
+      if (!v.shop) continue;
+      found++;
+      expect(v.parts.filter((p) => p.type === 'shop')).toHaveLength(1);
+      expect(Math.sin(v.shop.rotY)).toBeCloseTo(1);
+      if (v.marinaHouse) expect(Math.hypot(v.shop.x - v.marinaHouse.x, v.shop.z - v.marinaHouse.z)).toBeGreaterThan(12);
     }
     expect(found).toBe(20);
   });
