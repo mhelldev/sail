@@ -21,6 +21,7 @@ export class TouchUi {
       <div class="touch-stick" data-stick><div class="touch-stick-knob" data-knob></div></div>
       <button type="button" class="touch-jump" data-jump>Jump</button>
       <div class="touch-buttons">
+        <button type="button" data-binoculars>Binoculars</button>
         <button type="button" data-sail-toggle>Sail down</button>
         <button type="button" data-aboard>Aboard</button>
         <button type="button" data-sound-toggle>Sound</button>
@@ -41,6 +42,7 @@ export class TouchUi {
     this.stickKnob = this.root.querySelector('[data-knob]') as HTMLElement;
     this.stickBase.style.setProperty('--r', `${JOYSTICK}px`);
     button('[data-aboard]', 'KeyB');
+    button('[data-binoculars]', 'KeyF');
     this.sailButton = button('[data-sail-toggle]', 'KeyE');
     this.soundButton = button('[data-sound-toggle]', 'KeyV');
     this.hint = this.root.querySelector('.touch-hint') as HTMLElement;

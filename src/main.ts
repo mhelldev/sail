@@ -359,6 +359,9 @@ function frame(timestamp: number): void {
   if (input.wasPressed('KeyV')) seaSound.toggleMute();
   if (input.wasPressed('KeyN')) environment.night = !environment.night;
   if (input.wasPressed('KeyE')) boat.sailUp = !boat.sailUp;
+  // F: binoculars up / down (Esc also puts them down).
+  if (input.wasPressed('KeyF')) walk.binoculars = !walk.binoculars;
+  if (input.wasPressed('Escape')) walk.binoculars = false;
   if (input.wasPressed('KeyT')) boat.turbo = !boat.turbo;
   if (input.wasPressed('KeyR')) {
     clearSavedBoat();
@@ -384,6 +387,7 @@ function frame(timestamp: number): void {
   water.setBoat(boat.position.x, boat.position.z, boat.state.heading, boat.state.speed);
   walk.update(dt, time, input);
   hud.setHand(walk.holding ? 'grip' : walk.canGrab ? 'open' : 'none');
+  hud.setBinoculars(walk.binoculars, walk.bearing);
   // The world is built around the player, who may have walked or swum away from the boat.
   const me = walk.position;
   water.update(time, me.x, me.z);

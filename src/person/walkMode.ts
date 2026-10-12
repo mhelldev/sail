@@ -1,6 +1,6 @@
 // The player in first person: on the boat (deck, cockpit, down in the cabin), on piers and land,
 // or swimming. The boat keeps sailing its course. Arrow keys / WASD walk, Shift runs, Space jumps,
-// moving the mouse looks around, the right button zooms. Near the helm the wheel can be grabbed
+// moving the mouse looks around, the right button zooms, F raises the binoculars (10×). Near the helm the wheel can be grabbed
 // (click or touch) and turned by dragging; the door and the chart plotter react to a click.
 
 import * as THREE from 'three';
@@ -22,6 +22,8 @@ const REACH = 2.6; // how far away the wheel can be grabbed (from the eyes)
 const CLICK_REACH = 3.8; // door, chart plotter
 const FOV = 55;
 const ZOOM_FOV = 20;
+/** Binoculars: 10× magnification, i.e. a tenth of the view's tangent. */
+export const BINOCULAR_FOV = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(FOV / 2)) / 10));
 const GRAB_RADIUS = 0.6; // a little beyond the rim, so it's easy to hit
 // The hand on the wheel moves faster than the mouse: ¾ turn each way would otherwise need very
 // long drags (a finger on a touch screen holds the rim directly).
@@ -62,6 +64,8 @@ export class WalkMode {
   steer: number | null = null;
   /** the wheel (or something clickable) is under the crosshair and within reach */
   canGrab = false;
+  /** looking through the binoculars (F): 10× zoom, no grabbing or clicking */
+  binoculars = false;
 
   private yaw = 0; // compass-style: looks along (sin, -cos)
   private pitch = 0; // positive = looking down
@@ -143,7 +147,7 @@ export class WalkMode {
       if (e.pointerType === 'mouse') {
         if (document.pointerLockElement !== dom) dom.requestPointerLock?.()?.catch?.(() => {});
         if (e.button === 2) this.zoom = true;
-        if (e.button === 0 && !this.tryGrab('mouse', 0, 0) && !this.tryDrag('mouse', 0, 0, e.clientY)) this.click(0, 0);
+        if (e.button === 0 && !this.binoculars && !this.tryGrab('mouse', 0, 0) && !this.tryDrag('mouse', 0, 0, e.clientY)) this.click(0, 0);
         return;
       }
       // Touch: the wheel first, then walking on the left half, looking on the right half.
@@ -151,9 +155,9 @@ export class WalkMode {
       const y = -(e.clientY / window.innerHeight) * 2 + 1;
       // The stick's resting spot (bottom left) always walks, even with the wheel's rim behind it.
       const onStick = e.clientX < 24 + JOYSTICK * 2 + 40 && e.clientY > window.innerHeight - (28 + JOYSTICK * 2 + 40);
-      if (!onStick && !this.grab && this.tryGrab(e.pointerId, x, y)) return;
-      if (!onStick && !this.dragging && this.tryDrag(e.pointerId, x, y, e.clientY)) return;
-      if (!onStick && this.click(x, y)) return;
+      if (!onStick && !this.binoculars && !this.grab && this.tryGrab(e.pointerId, x, y)) return;
+      if (!onStick && !this.binoculars && !this.dragging && this.tryDrag(e.pointerId, x, y, e.clientY)) return;
+      if (!onStick && !this.binoculars && this.click(x, y)) return;
       if (e.clientX < window.innerWidth / 2) {
         if (!this.joystick) this.joystick = { pointer: e.pointerId, x: e.clientX, y: e.clientY, forward: 0, right: 0 };
       } else if (!this.lookFinger) {
@@ -191,6 +195,11 @@ export class WalkMode {
     window.addEventListener('pointerup', release);
     window.addEventListener('pointercancel', release);
     dom.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  /** Compass bearing the player looks at, degrees (shown in the binoculars). */
+  get bearing(): number {
+    return (((this.yaw * 180) / Math.PI) % 360 + 360) % 360;
   }
 
   /** Holding the wheel or a lever (for the crosshair). */
@@ -263,13 +272,22 @@ export class WalkMode {
     const eye = this.head.set(p.x, eyeY, p.z);
     this.camera.up.set(0, 1, 0);
     this.camera.position.copy(eye);
+    // Holding binoculars at 10× nobody keeps perfectly still: a slow sway plus a little tremor.
+    const t = this.time;
+    const shake = this.binoculars ? 1 : 0;
+    const sway = shake * (0.0016 * Math.sin(t * 0.9) + 0.0007 * Math.sin(t * 2.7 + 1.3) + 0.0003 * Math.sin(t * 7.1));
+    const bob = shake * (0.0012 * Math.sin(t * 1.1 + 0.5) + 0.0005 * Math.sin(t * 3.3) + 0.0003 * Math.sin(t * 8.3 + 2));
+    const yaw = this.yaw + sway;
+    const pitch = this.pitch + bob;
     this.camera.lookAt(
-      eye.x + Math.sin(this.yaw) * Math.cos(this.pitch),
-      eye.y - Math.sin(this.pitch),
-      eye.z - Math.cos(this.yaw) * Math.cos(this.pitch),
+      eye.x + Math.sin(yaw) * Math.cos(pitch),
+      eye.y - Math.sin(pitch),
+      eye.z - Math.cos(yaw) * Math.cos(pitch),
     );
-    // Right mouse button: a closer look (reading the instruments, spotting a harbour).
-    const fov = THREE.MathUtils.lerp(this.camera.fov, this.zoom ? ZOOM_FOV : FOV, 1 - Math.exp(-12 * dt));
+    // Binoculars (F): 10×. Right mouse button: a closer look (reading the instruments).
+    const target = this.binoculars ? BINOCULAR_FOV : this.zoom ? ZOOM_FOV : FOV;
+    // Raising or lowering the binoculars is instant; the right-button zoom eases in.
+    const fov = this.binoculars || this.camera.fov < ZOOM_FOV - 1 ? target : THREE.MathUtils.lerp(this.camera.fov, target, 1 - Math.exp(-12 * dt));
     if (Math.abs(fov - this.camera.fov) > 0.01) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
@@ -369,7 +387,7 @@ export class WalkMode {
       this.steer = null;
     }
     this.ndc.set(0, 0);
-    this.canGrab = !g && !this.dragging && this.person.mode !== 'swim' && (this.wheelAngleAt(this.ndc, true) !== null || !!this.clickableAt(0, 0) || !!this.pick(this.draggables, 0, 0));
+    this.canGrab = !g && !this.dragging && !this.binoculars && this.person.mode !== 'swim' && (this.wheelAngleAt(this.ndc, true) !== null || !!this.clickableAt(0, 0) || !!this.pick(this.draggables, 0, 0));
   }
 }
 

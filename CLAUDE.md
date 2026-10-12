@@ -52,10 +52,13 @@ First person only (no chase/deck/top cameras); the player starts behind the whee
 any more apart from the crosshair and the key help line: the instruments are a screen on the boat.
 
 - Keyboard: arrows/WASD walk, Shift run, Space jump (or climb out of the water), E sail up/down, T turbo,
-  B back aboard behind the wheel, M chart range, V sound, N night, R back to start, G tuning panel.
+  B back aboard behind the wheel, M chart range, V sound, N night, F binoculars, R back to start, G tuning panel.
 - Mouse: moving it looks around at once (no click needed; a cursor resting at the left/right window edge keeps
   turning). The first click also requests pointer lock (browsers require a click), Esc releases it.
   Right button held = zoom (FOV 20°, for reading the instruments).
+- F (or the touch button) raises the binoculars, F/Esc lowers them: 10× (FOV ≈ 6°), finer mouse look, a slight
+  hand sway, no grabbing/clicking. Overlay in `Hud.setBinoculars`: SVG mask with two blurred overlapping circles,
+  a reticle and the compass bearing of the view (`WalkMode.bearing`).
 - Clicking (or tapping) the companionway door opens/closes it; clicking the chart plotter changes its range.
   The marina house doors work the same way (`MarinaHouses` adds/removes their clickables as houses are built).
   `WalkMode.clickables` (raycast, ≤ 3.8 m) — add more there; `WalkMode.draggables` for things moved by dragging
