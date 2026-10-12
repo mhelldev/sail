@@ -4,9 +4,11 @@
 
 import alea from 'alea';
 import type { Harbor } from './harborData';
+import { MARINA_HOUSE } from './marinaHouse';
 
 export type PartType =
   | 'house'
+  | 'marinaHouse'
   | 'roof'
   | 'chimney'
   | 'tower'
@@ -67,6 +69,16 @@ export interface Village {
   lights: Array<{ x: number; y: number; z: number; color: number }>;
   /** fuel pump at the pier head (the fuel berth), standing on the deck at y */
   fuel?: { x: number; y: number; z: number };
+  /** the marina house (harbour office) you can walk into; drawn by `MarinaHouses` when near */
+  marinaHouse?: MarinaHouseSite;
+}
+
+/** Base of the marina house: centre of its footprint at ground level, front (local +Z) facing the sea. */
+export interface MarinaHouseSite {
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
 }
 
 export interface Ground {
@@ -106,6 +118,7 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
   const lighthouses: Village['lighthouses'] = [];
   const lights: Village['lights'] = [];
   let fuel: Village['fuel'];
+  let marinaHouse: Village['marinaHouse'];
   const add = (p: Part) => parts.push(p);
   const big = h.isHarbour;
 
@@ -275,14 +288,17 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
     return true;
   }
 
-  // Harbourmaster's office at the root of the pier, with a flag.
+  // Marina house (harbour office) at the root of the pier, with a flag. Its walls are a plain box from
+  // afar ('marinaHouse' part); up close `MarinaHouses` swaps in the real house with door and gallery.
   {
     const p = at(10, -14);
     if (buildable(p.x, p.z, 7, 5)) {
       occupied.push({ x: p.x, z: p.z, r: 7 });
       const y = ground.height(p.x, p.z) - 0.3;
-      add({ type: 'house', x: p.x, y, z: p.z, rotY: seaward, sx: 11, sy: 6.5, sz: 8, color: 0xf3f1ea });
-      add({ type: 'roof', x: p.x, y: y + 6.5, z: p.z, rotY: alongShore, sx: 8.6, sy: 3, sz: 11.6, color: 0x2e3035 });
+      const { width, depth, height } = MARINA_HOUSE;
+      add({ type: 'marinaHouse', x: p.x, y, z: p.z, rotY: seaward, sx: width, sy: height, sz: depth, color: MARINA_HOUSE.color });
+      add({ type: 'roof', x: p.x, y: y + height, z: p.z, rotY: alongShore, sx: depth + 0.6, sy: 3, sz: width + 0.6, color: 0x2e3035 });
+      marinaHouse = { x: p.x, y, z: p.z, rotY: seaward };
       const f = at(3, -9.5);
       add({ type: 'flagpole', x: f.x, y, z: f.z, rotY: 0, sx: 0.15, sy: 11, sz: 0.15, color: 0xeeeeee });
       add({ type: 'flag', x: f.x, y: y + 9.4, z: f.z, rotY: alongShore, sx: 0.05, sy: 1.2, sz: 1.8, color: pick([0xae1c28, 0x21468b, 0xf2a900]) });
@@ -372,7 +388,7 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
     i++;
   }
 
-  return { harborId: h.id, parts, obstacles, mills, lighthouses, lights, fuel };
+  return { harborId: h.id, parts, obstacles, mills, lighthouses, lights, fuel, marinaHouse };
 }
 
 /** Signed distance to an obstacle box: positive inside (like land), negative outside. */

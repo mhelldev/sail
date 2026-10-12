@@ -7,7 +7,7 @@ project at `/Users/michael/projects/godot/boat3d`.
 
 - `godot/boat3d` (and `godot/sailboat`, an older prototype) are **read-only reference**. Never modify them.
 - Take ideas, not code: re-design for the web stack instead of translating GDScript line by line.
-- Out of scope for now: weather API (wind is random, `src/weather/wind.ts`), wikidata images.
+- Out of scope for now: weather API (wind is random, `src/weather/wind.ts`).
 
 ## Commands
 
@@ -16,7 +16,11 @@ project at `/Users/michael/projects/godot/boat3d`.
 - `npm run typecheck` / `npm run build`
 - `npm run harbors` — re-bake `public/data/harbors.json` (committed) from Overpass: named marinas/harbours and
   lighthouses, snapped to our coast. Raw downloads are cached in `data/harbors-raw/` (gitignored); delete it to
-  fetch fresh data. The game itself never queries anything.
+  fetch fresh data. The game itself never queries anything (except the marina gallery photos, below).
+- `npm run marinas` — re-bake `public/data/marinas/` (committed) for the marina houses: per harbour the nearest
+  fitting English Wikipedia article (intro text) and up to 6 freely licensed Commons photos (metadata only).
+  ~45 min for all harbours (Wikimedia allows ~200 requests/min with an identifying User-Agent); per-harbour
+  results are cached in `data/marinas-raw/`, so it resumes. Run it after `npm run harbors` (ids = indices).
 - `npm run geo` — regenerate `public/data/coast.json` from `boat3d/europe.geo.json` (read-only input)
 
 ## Conventions
@@ -53,6 +57,7 @@ any more apart from the crosshair and the key help line: the instruments are a s
   turning). The first click also requests pointer lock (browsers require a click), Esc releases it.
   Right button held = zoom (FOV 20°, for reading the instruments).
 - Clicking (or tapping) the companionway door opens/closes it; clicking the chart plotter changes its range.
+  The marina house doors work the same way (`MarinaHouses` adds/removes their clickables as houses are built).
   `WalkMode.clickables` (raycast, ≤ 3.8 m) — add more there; `WalkMode.draggables` for things moved by dragging
   (the throttle lever). Small targets get invisible, larger hit meshes (`MeshBasicMaterial({ visible: false })`).
 - Engine (`boat/engine.ts`, pure + tested): panel on the starboard cockpit wall right of the wheel — click the key
@@ -136,6 +141,17 @@ any more apart from the crosshair and the key help line: the instruments are a s
 - Terrain is flattened around villages/lighthouses (`terrain/flatten.ts`) in both workers and main thread;
   `groundFor()` in `main.ts` is the main-thread copy of the worker's ground for placing houses.
 - Boat collision uses `max(coast distance, harbour obstacle distance)`.
+- Marina houses (the harbour office at the root of every pier, `village.ts` → `Village.marinaHouse`): from afar a
+  plain windowed box ('marinaHouse' part); within 350 m `marinaHouses.ts` swaps in `marinaHouseModel.ts` — name
+  board over the door (lit at night), a door you click open (door.mp3, like the cabin), stone plinth and steps (the
+  rendered terrain near the shore can be a metre lower than the village's ground), and inside a small gallery: six
+  framed photos with museum labels (title, photographer, licence) and a poster with the Wikipedia intro and its
+  attribution. Layout and walk surfaces in `marinaHouse.ts` (pure, tested; floor/ceiling/door like `boatSurfaces`;
+  terrain is ignored inside the footprint). Interior materials are unlit (MeshBasic + baked shading).
+- Gallery data (`marinaInfo.ts`): `public/data/marinas/<lat>_<lon>.json` per 2° cell, loaded when a house is near.
+  Thumbnails (500 px) come from upload.wikimedia.org (CORS ok) and are prefetched within 3 km, kept in Cache
+  Storage (`marina-gallery-v1`; needs https/localhost) so visited marinas work offline. Missing photos (nothing
+  found, offline) become procedural seascape paintings; no article → a short welcome text.
 - GPU timing is noisy (clock changes): compare with/without by alternating several batches and using medians.
 
 ## Generated traffic (`src/traffic/`)
@@ -188,7 +204,8 @@ any more apart from the crosshair and the key help line: the instruments are a s
 ## First person (`src/person/`)
 
 - `personController.ts` is pure: it only asks a `WalkWorld` for surfaces at a point (tops, optional `bottom`,
-  boat or not) and the water level. Surfaces higher than a step block (walls, hull sides, railing) unless their
+  boat or not) and the water level. Slopes up to `maxSlope` (1.1) can be walked up; ledges > 5 cm need a jump,
+  so stairs you should walk up are modelled as ramps (see the marina house steps). Surfaces higher than a step block (walls, hull sides, railing) unless their
   bottom is above the head (roofs); jumping bumps the head on them. The body has a 0.25 m radius so the camera
   (near plane 0.1) stays off walls. Jump ~1.1 m: enough for the railing and the cabin roof.
   Water below the feet → swimming; Space while swimming climbs onto something within reach in front.

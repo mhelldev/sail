@@ -17,6 +17,8 @@ import { CoastLines } from './geo/coastLines';
 import { Coastline, type CoastData } from './geo/coastline';
 import { HarborData } from './harbors/harborData';
 import { HarborRenderer } from './harbors/harborRenderer';
+import { MarinaHouses } from './harbors/marinaHouses';
+import { MarinaInfoStore } from './harbors/marinaInfo';
 import { WalkMode } from './person/walkMode';
 import { TrafficManager } from './traffic/trafficManager';
 import { TrafficRenderer } from './traffic/trafficRenderer';
@@ -180,8 +182,21 @@ coastLines.object.visible = false;
 scene.add(coastLines.object);
 
 // First person only: the player starts behind the wheel.
-const walk = new WalkMode(camera, renderer.domElement, boat, waves, terrain, harbors);
+const walk = new WalkMode(camera, renderer.domElement, boat, waves, terrain, harbors, {
+  surfacesAt: (x, z) => marinaHouses.surfacesAt(x, z),
+  coversGround: (x, z) => marinaHouses.coversGround(x, z),
+});
 walk.enter();
+// Marina houses: walk in through the door (same sound as the cabin door), a gallery of photos of the
+// place and a poster about it inside (baked by scripts/bake-marinas.ts, photos fetched when near).
+const marinaHouses = new MarinaHouses(
+  harbors,
+  new MarinaInfoStore(`${import.meta.env.BASE_URL}data/marinas/`),
+  walk.clickables,
+  (opening) => doorSound.play(opening, seaSound.muted),
+  () => walk.person,
+);
+scene.add(marinaHouses.group);
 walk.clickables.push(
   {
     object: boat.model.door,
@@ -390,6 +405,7 @@ function frame(timestamp: number): void {
   shoreMap.update(me.x, me.z);
   coastLines.update(me.x, me.z);
   harbors.update(dt, time, me.x, me.z);
+  marinaHouses.update(dt, me.x, me.z, NIGHT.value);
   traffic.update(dt, me.x, me.z, wind.direction, wind.speed);
   trafficRenderer.update(traffic.vessels, waves, time, dt, me.x, me.z);
   const geo = projection.toGeo(boat.position.x, boat.position.z);
@@ -492,4 +508,4 @@ function updateVhf(dt: number): void {
 }
 
 // Dev-only handle for poking at the scene from the browser console.
-if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, seaSound, engineSound, gulls, seals, ambience, vhfBrain, vhfSound, traffic, trafficRenderer, environment, weather, walk, input, frame } });
+if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, marinaHouses, seaSound, engineSound, gulls, seals, ambience, vhfBrain, vhfSound, traffic, trafficRenderer, environment, weather, walk, input, frame } });

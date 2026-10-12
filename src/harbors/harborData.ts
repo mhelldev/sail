@@ -8,6 +8,9 @@ import type { FlattenSite } from '../terrain/flatten';
 export interface Harbor {
   id: number;
   name: string;
+  /** baked position (degrees), for looking up its marina info (see marinaInfo.ts) */
+  lat: number;
+  lon: number;
   /** shore point on our coastline */
   x: number;
   z: number;
@@ -71,7 +74,7 @@ export class HarborData {
       file.harbors.map(([name, lat, lon, heading, isHarbour], id) => {
         const p = projection.toWorld(lon, lat);
         const h = (heading * Math.PI) / 180; // compass → world: east = +X, north = -Z
-        return { id, name, x: p.x, z: p.z, seaX: Math.sin(h), seaZ: -Math.cos(h), isHarbour: isHarbour === 1 };
+        return { id, name, lat, lon, x: p.x, z: p.z, seaX: Math.sin(h), seaZ: -Math.cos(h), isHarbour: isHarbour === 1 };
       }),
     );
     this.lighthouses = new Grid(

@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "geo": "node scripts/preprocess-geo.ts",
-    "harbors": "node scripts/bake-harbors.ts"
+    "harbors": "node scripts/bake-harbors.ts",
+    "marinas": "node scripts/bake-marinas.ts"
   },
   "dependencies": {
     "alea": "^1.0.1",

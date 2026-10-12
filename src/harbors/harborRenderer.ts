@@ -1,15 +1,18 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { lightPointsMaterial, NIGHT } from '../world/night';
-import type { HarborData, Lighthouse } from './harborData';
-import { generateVillage, obstacleDistance, type Ground, type Obstacle, type Part, type PartType, type Village } from './village';
+import type { Harbor, HarborData, Lighthouse } from './harborData';
+import { generateVillage, obstacleDistance, type Ground, type MarinaHouseSite, type Obstacle, type Part, type PartType, type Village } from './village';
 
 /** Something a person can stand on or bump into: an oriented box footprint with a top height. */
 export interface WalkBox extends Obstacle {
   top: number;
 }
 
-/** Footprint and top of the parts that matter for walking; everything else is decoration. */
+/**
+ * Footprint and top of the parts that matter for walking; everything else is decoration.
+ * (Marina houses have rooms inside: `MarinaHouses` answers for them.)
+ */
 function walkBox(p: Part): WalkBox | undefined {
   switch (p.type) {
     case 'deck':
@@ -73,6 +76,7 @@ export function hull(): THREE.BufferGeometry {
 
 const GEOMETRY: Record<PartType, () => THREE.BufferGeometry> = {
   house: box,
+  marinaHouse: box,
   roof: gable,
   chimney: box,
   tower: box,
@@ -101,7 +105,7 @@ const GEOMETRY: Record<PartType, () => THREE.BufferGeometry> = {
 };
 
 /** Wall types that get procedural windows. */
-const WINDOWED = new Set<PartType>(['house', 'tower']);
+const WINDOWED = new Set<PartType>(['house', 'marinaHouse', 'tower']);
 
 /**
  * Building material: draws window panes on the walls procedurally from each instance's size,
@@ -238,6 +242,8 @@ export class HarborRenderer {
   private sinceBuild = 0;
   private dirty = false;
   private nearbyObstacles: Obstacle[] = [];
+  /** villages whose marina house is drawn in detail (by MarinaHouses): no plain box for those */
+  private detailedMarinaHouses = new Set<number>();
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
   private readonly v = new THREE.Vector3();
@@ -341,6 +347,20 @@ export class HarborRenderer {
     return best;
   }
 
+  /** The marina houses of the villages built so far. */
+  marinaHouseSites(): Array<{ harbor: Harbor; site: MarinaHouseSite }> {
+    const out: Array<{ harbor: Harbor; site: MarinaHouseSite }> = [];
+    for (const [id, v] of this.villages) if (v.marinaHouse) out.push({ harbor: this.data.harbors.items[id], site: v.marinaHouse });
+    return out;
+  }
+
+  /** Marina houses drawn in detail elsewhere: their plain boxes are left out. */
+  setDetailedMarinaHouses(ids: Set<number>): void {
+    if (ids.size === this.detailedMarinaHouses.size && [...ids].every((id) => this.detailedMarinaHouses.has(id))) return;
+    this.detailedMarinaHouses = ids;
+    this.dirty = true;
+  }
+
   get villageCount(): number {
     return this.villages.size;
   }
@@ -395,8 +415,10 @@ export class HarborRenderer {
   /** Writes every active village's parts into the per-type instance buffers. */
   private rebuildInstances(): void {
     const byType = new Map<PartType, Village['parts']>();
-    for (const v of this.villages.values()) {
+    for (const [id, v] of this.villages) {
+      const detailed = this.detailedMarinaHouses.has(id);
       for (const p of v.parts) {
+        if (detailed && p.type === 'marinaHouse') continue;
         const list = byType.get(p.type);
         if (list) list.push(p);
         else byType.set(p.type, [p]);

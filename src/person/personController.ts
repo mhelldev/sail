@@ -161,7 +161,8 @@ export class PersonController {
   private tryMove(nx: number, nz: number, dirX: number, dirZ: number, world: WalkWorld): void {
     const dist = Math.hypot(nx - this.x, nz - this.z);
     if (dist === 0) return;
-    if (this.blocked(nx, nz, dist, world) || this.blocked(nx + dirX * PERSON.radius, nz + dirZ * PERSON.radius, dist, world)) return;
+    // The point a body radius ahead is that much further away: judge its slope over that run.
+    if (this.blocked(nx, nz, dist, world) || this.blocked(nx + dirX * PERSON.radius, nz + dirZ * PERSON.radius, dist + PERSON.radius, world)) return;
     this.x = nx;
     this.z = nz;
   }

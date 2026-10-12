@@ -7,9 +7,9 @@ const ground: Ground = {
   sd: (x) => -x,
   height: (x) => (x < 0 ? 3 : -5),
 };
-const harbor = (id: number, isHarbour: boolean): Harbor => ({ id, name: `Test ${id}`, x: 0, z: 0, seaX: 1, seaZ: 0, isHarbour });
+const harbor = (id: number, isHarbour: boolean): Harbor => ({ id, name: `Test ${id}`, lat: 0, lon: 0, x: 0, z: 0, seaX: 1, seaZ: 0, isHarbour });
 
-const LAND = new Set(['house', 'roof', 'chimney', 'tower', 'spire', 'trunk', 'crown', 'conifer', 'flagpole', 'flag', 'millTower', 'millCap', 'lampPost']);
+const LAND = new Set(['house', 'marinaHouse', 'roof', 'chimney', 'tower', 'spire', 'trunk', 'crown', 'conifer', 'flagpole', 'flag', 'millTower', 'millCap', 'lampPost']);
 const WATER = new Set(['deck', 'pile', 'pontoon', 'breakwater', 'rock', 'hull', 'mast', 'cabin', 'harbourLight']);
 
 describe('generateVillage', () => {
@@ -44,6 +44,24 @@ describe('generateVillage', () => {
     }
     expect(harbourHouses).toBeGreaterThan(marinaHouses);
     expect(marinaHouses / 20).toBeGreaterThan(15); // a real village, not a handful of sheds
+  });
+});
+
+describe('marina house', () => {
+  it('stands at the root of the pier, facing the sea, with its own walls part', () => {
+    let found = 0;
+    for (let id = 0; id < 20; id++) {
+      const v = generateVillage(harbor(id, id % 2 === 0), ground, { hasRealLighthouse: true });
+      if (!v.marinaHouse) continue;
+      found++;
+      const shell = v.parts.filter((p) => p.type === 'marinaHouse');
+      expect(shell).toHaveLength(1);
+      expect(shell[0]).toMatchObject({ x: v.marinaHouse.x, z: v.marinaHouse.z, rotY: v.marinaHouse.rotY });
+      // Front (local +Z) points out to sea (+X here).
+      expect(Math.sin(v.marinaHouse.rotY)).toBeCloseTo(1);
+      expect(ground.sd(v.marinaHouse.x, v.marinaHouse.z)).toBeGreaterThan(5);
+    }
+    expect(found).toBe(20);
   });
 });
 

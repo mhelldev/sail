@@ -29,6 +29,13 @@ const MOUSE_HAND = 2.5;
 /** px of finger travel for full walking speed (the on-screen stick's radius) */
 export const JOYSTICK = 60;
 
+/** Walkable things with rooms (floors, ceilings) beyond the boat and the plain village boxes. */
+export interface ExtraWalkWorld {
+  surfacesAt(x: number, z: number): Array<{ top: number; bottom?: number }>;
+  /** has its own floor here: the terrain doesn't count */
+  coversGround(x: number, z: number): boolean;
+}
+
 /** Something on the boat that reacts to a click or tap. */
 export interface Clickable {
   object: THREE.Object3D;
@@ -87,15 +94,18 @@ export class WalkMode {
     private readonly waves: WaveField,
     terrain: TerrainManager,
     harbors: HarborRenderer,
+    /** more things to walk on/into, e.g. the marina houses (with floors and ceilings) */
+    more?: ExtraWalkWorld,
   ) {
     const tilt = boat.model.tilt;
     this.world = {
       waterLevel: (x, z) => heightAt(this.waves, x, z, this.time),
       surfacesAt: (x, z) => {
         const out: Surface[] = [];
-        const ground = terrain.heightAt(x, z);
+        const ground = more?.coversGround(x, z) ? undefined : terrain.heightAt(x, z);
         if (ground !== undefined) out.push({ top: ground, boat: false });
         for (const top of harbors.surfacesAt(x, z)) out.push({ top, boat: false });
+        if (more) for (const s of more.surfacesAt(x, z)) out.push({ ...s, boat: false });
         // The boat's deck and cabin roof, wherever the boat currently is.
         // The boat: deck, cockpit, cabin (floor, steps, roof overhead), railing — wherever it is.
         this.v.set(x, this.person.y + 1, z).applyMatrix4(this.boatInverse);
