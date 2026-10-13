@@ -55,6 +55,8 @@ export class VhfSound {
   volume = 1;
   /** a transmission is coming in (for the display's RX light) */
   receiving = false;
+  /** don't start a new transmission (somebody is talking to the player) */
+  hold = false;
   /** amount of static, crackle and squelch noise, 0…2 (tuning panel) */
   staticLevel = 1;
   /** language of the voices (the brain speaks the same one) */
@@ -143,7 +145,7 @@ export class VhfSound {
     if (ctx) this.lastUpdate = ctx.currentTime;
     // Wait for the voice list: without a voice the browser would read English with its default
     // (e.g. German) voice.
-    if (!this.receiving && this.queue.length && this.voices.length) this.transmit(this.queue.shift()!);
+    if (!this.receiving && !this.hold && this.queue.length && this.voices.length) this.transmit(this.queue.shift()!);
   }
 
   private transmit(t: Transmission): void {

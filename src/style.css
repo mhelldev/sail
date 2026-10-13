@@ -370,3 +370,27 @@ body.binoculars-up .hud-status {
     opacity: calc(var(--weak) * 1.2);
   }
 }
+
+/* ---- What people say (above the help line) ---- */
+.hud-subtitle {
+  position: absolute;
+  left: 50%;
+  bottom: 110px;
+  transform: translateX(-50%);
+  max-width: min(720px, 86vw);
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgba(10, 16, 22, 0.66);
+  color: #fffbe8;
+  font: 500 17px/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.25s;
+  pointer-events: none;
+}
+.hud-subtitle-shown {
+  opacity: 1;
+}
+body.binoculars-up .hud-subtitle {
+  display: none;
+}

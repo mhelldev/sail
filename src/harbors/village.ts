@@ -75,6 +75,17 @@ export interface Village {
   marinaHouse?: MarinaHouseSite;
   /** the supermarket on the other side of the pier root; drawn by `MarinaHouses` when near */
   shop?: MarinaHouseSite;
+  /** where people can walk: quay promenade, main street, side streets, the pier */
+  walkways: WalkGraph;
+}
+
+/**
+ * Points people walk between and which are linked. `y` is set on the pier (its deck); on land the
+ * walker stands on the terrain.
+ */
+export interface WalkGraph {
+  nodes: Array<{ x: number; z: number; y?: number }>;
+  links: number[][];
 }
 
 /** Base of the marina house: centre of its footprint at ground level, front (local +Z) facing the sea. */
@@ -375,10 +386,12 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
     addHouse(11, v, alongShore + Math.PI);
   }
   const sideStreets = big ? Math.floor(rand(2, 4)) : Math.floor(rand(1, 3));
+  const sides: Array<{ v0: number; dir: number; len: number }> = [];
   for (let i = 0; i < sideStreets; i++) {
     const v0 = -60 - rng() * (street - 60);
     const dir = rng() < 0.5 ? -1 : 1;
     const len = rand(50, big ? 150 : 100);
+    sides.push({ v0, dir, len });
     for (let s = 24; s < len; s += rand(10.5, 13.5)) {
       addHouse(dir * s, v0 - 11, seaward);
       addHouse(dir * s, v0 + 11, inland);
@@ -406,7 +419,73 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
     i++;
   }
 
-  return { harborId: h.id, parts, obstacles, mills, lighthouses, lights, fuel, marinaHouse, shop };
+  // Walkways, laid over what was built: a point inside a building, a tree or the water is left out
+  // (and with it its links), so people never walk through houses.
+  const walkways = walkGraph(
+    at,
+    { quay, street, sides, pierLen: hasPier ? pierLen : 0 },
+    (x, z) => ground.sd(x, z) > 1.5 && free(x, z, 0.6),
+  );
+
+  return { harborId: h.id, parts, obstacles, mills, lighthouses, lights, fuel, marinaHouse, shop, walkways };
+}
+
+const WALK_STEP = 6; // metres between walkway points
+const PROMENADE = -4; // the quay walk, just above the waterline (v)
+const PIER_DECK = 1.7;
+
+/** The walkway graph in the village frame (u along the shore, v out to sea), then thinned by `ok`. */
+function walkGraph(
+  at: (u: number, v: number) => { x: number; z: number },
+  plan: { quay: number; street: number; sides: Array<{ v0: number; dir: number; len: number }>; pierLen: number },
+  ok: (x: number, z: number) => boolean,
+): WalkGraph {
+  const nodes: WalkGraph['nodes'] = [];
+  const links: number[][] = [];
+  const add = (u: number, v: number, y?: number): number => {
+    const p = at(u, v);
+    nodes.push(y === undefined ? { x: p.x, z: p.z } : { x: p.x, z: p.z, y });
+    links.push([]);
+    return nodes.length - 1;
+  };
+  const link = (a: number, b: number) => {
+    links[a].push(b);
+    links[b].push(a);
+  };
+  /** A straight walk from (u0, v0) to (u1, v1), linked to `from` if given; returns its node ids. */
+  const line = (u0: number, v0: number, u1: number, v1: number, y?: number, from?: number): number[] => {
+    const n = Math.max(1, Math.round(Math.hypot(u1 - u0, v1 - v0) / WALK_STEP));
+    const ids: number[] = [];
+    // With `from`, the first point is `from` itself.
+    for (let i = from === undefined ? 0 : 1; i <= n; i++) ids.push(add(u0 + ((u1 - u0) * i) / n, v0 + ((v1 - v0) * i) / n, y));
+    if (from !== undefined) ids.unshift(from);
+    for (let i = 1; i < ids.length; i++) link(ids[i - 1], ids[i]);
+    return ids;
+  };
+  // Quay promenade (its middle point is where the main street and the pier meet it).
+  const half = Math.round(plan.quay / WALK_STEP) * WALK_STEP;
+  const quay = line(-half, PROMENADE, half, PROMENADE);
+  const centre = quay[Math.round((quay.length - 1) / 2)];
+  // Main street inland, stopping where each side street branches off.
+  const stops = [...plan.sides.map((s) => s.v0), -plan.street].sort((a, b) => b - a);
+  let end = centre;
+  let v = PROMENADE;
+  for (const stop of stops) {
+    const ids = line(0, v, 0, stop, undefined, end);
+    end = ids[ids.length - 1];
+    v = stop;
+    const side = plan.sides.find((s) => s.v0 === stop);
+    if (side) line(0, side.v0, side.dir * side.len, side.v0, undefined, end);
+  }
+  // Out along the pier, on its deck.
+  if (plan.pierLen > 10) line(-0.7, 1, -0.7, plan.pierLen - 4, PIER_DECK, centre);
+  // Leave out points that aren't free: unlink them (pier points stand on the deck: always fine).
+  for (let i = 0; i < nodes.length; i++) {
+    if (nodes[i].y !== undefined || ok(nodes[i].x, nodes[i].z)) continue;
+    for (const j of links[i]) links[j] = links[j].filter((k) => k !== i);
+    links[i] = [];
+  }
+  return { nodes, links };
 }
 
 /** Signed distance to an obstacle box: positive inside (like land), negative outside. */

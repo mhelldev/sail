@@ -178,6 +178,25 @@ any more apart from the crosshair and the key help line: the instruments are a s
 - `trafficRenderer.ts`: one InstancedMesh per shape type; per frame vessel pose (waves, heel) × part placement.
   Vessels are solid for the player (oriented boxes in `boat.landDistance`). Measured: ~0.1 ms CPU, no visible GPU cost.
 
+## People in the marinas (`src/people/`)
+
+- `village.ts` → `Village.walkways`: a graph over the quay promenade (v = -4), main street, side streets and the pier
+  deck (y set), laid over what was built: points inside buildings/trees/water are unlinked (tested: never in a house).
+- `crowd.ts` (pure, tested): ~10 people per village within 450 m (seeded per village: same people every time), persona,
+  colours, size (kids small), voice/pitch/rate; walk point to point on their own lane (±0.7 m, so they pass), pause
+  now and then; with a `listener` they stand still and turn to face it.
+- `talk.ts` (pure, tested): conversation = greeting, three topics, goodbye. Topics: a fact from the marina's Wikipedia
+  intro (`factSentences`, always first when there is one), weather (wind/rain/fog from the game), a tip for a real
+  nearby marina (`placeName` strips "Jachthaven", "WV"…; distance, direction), a story built from pieces, advice
+  (prices, ships, channel 16), remarks about you (your boat nearby, hungry/thirsty), something about their role.
+- `people.ts`: stand within 3.2 m looking at someone (±24°) → they stop, turn to you, talk line by line (`speech.ts`:
+  local English voices via `radioVoices`, the person's pitch/rate) with a subtitle (`Hud.setSubtitle`); walk off
+  (> 5 m) or look away 1.5 s and they go on (cooldown 30 s; 2 min after a whole conversation). The VHF holds new
+  transmissions while somebody talks (`VhfSound.hold`) and they wait for the radio to finish. Muted: subtitles only.
+- `peopleRenderer.ts`: one InstancedMesh for all (boxes tagged part/limb; the vertex shader colours them per person
+  and swings legs/arms, right arm gestures while talking). Measured ~0.015 ms CPU for 10, rendering within noise.
+  (`vColor` is a vec4 in this three.js: assign `.rgb`.)
+
 ## Money, hunger, thirst (`src/economy/`)
 
 - `economy.ts` (pure, tested): money (start € 150), hunger and thirst (100 = full; empty in 80 / 50 min of play),

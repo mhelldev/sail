@@ -33,6 +33,27 @@ describe('generateVillage', () => {
     }
   });
 
+  it('has walkways for people: never through a house, on land or on the pier deck, linked both ways', () => {
+    for (let id = 0; id < 20; id++) {
+      const v = generateVillage(harbor(id, id % 2 === 0), ground, { hasRealLighthouse: false });
+      const { nodes, links } = v.walkways;
+      const houses = v.parts.filter((p) => p.type === 'house' || p.type === 'marinaHouse' || p.type === 'shop');
+      let linked = 0;
+      nodes.forEach((n, i) => {
+        if (!links[i].length) return;
+        linked++;
+        for (const j of links[i]) expect(links[j]).toContain(i);
+        if (n.y !== undefined) return; // on the pier
+        expect(ground.sd(n.x, n.z), `village ${id}`).toBeGreaterThan(1.5);
+        for (const h of houses) {
+          const box = { x: h.x, z: h.z, halfW: h.sx / 2, halfL: h.sz / 2, rotY: h.rotY };
+          expect(obstacleDistance(box, n.x, n.z), `village ${id} point ${i} in a ${h.type}`).toBeLessThan(0);
+        }
+      });
+      expect(linked, `village ${id}`).toBeGreaterThan(20);
+    }
+  });
+
   it('makes harbours bigger than marinas and gives them obstacles to sail around', () => {
     let harbourHouses = 0;
     let marinaHouses = 0;

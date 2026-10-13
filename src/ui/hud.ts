@@ -12,6 +12,7 @@ export class Hud {
   private readonly bars: Record<'hunger' | 'thirst', HTMLElement>;
   private shown = { money: '', hunger: -1, thirst: -1, weak: -1 };
   private readonly weak: HTMLElement;
+  private readonly subtitle: HTMLElement;
 
   constructor(parent: HTMLElement) {
     const el = document.createElement('div');
@@ -21,6 +22,7 @@ export class Hud {
         <b>↑↓←→</b> or <b>WASD</b> walk · <b>Shift</b> run · <b>Space</b> jump / climb · mouse to look, <b>right button</b> zoom ·
         <b>click + drag</b> the wheel to steer · <b>click</b> door / chart plotter / engine key + START / fuel pump at a pier head · <b>drag</b> the throttle lever · <b>E</b> sail up/down · <b>T</b> turbo ·
         <b>click</b> goods in a supermarket to buy them, food on the pantry shelf in the cabin to eat it ·
+        stand in front of people in the marinas to talk ·
         <b>F</b> binoculars ·
         <b>B</b> back aboard · <b>M</b> chart range · <b>V</b> sound · <b>N</b> night · <b>R</b> start · <b>G</b> tuning
       </div>
@@ -49,7 +51,8 @@ export class Hud {
         <div class="hud-bar" data-bar="thirst"><span class="hud-bar-label">Drink</span><span class="hud-bar-track"><span class="hud-bar-fill"></span></span></div>
       </div>
       <div class="crosshair" data-crosshair></div>
-      <div class="hud-note" data-note></div>`;
+      <div class="hud-note" data-note></div>
+      <div class="hud-subtitle" data-subtitle></div>`;
     parent.appendChild(el);
     this.crosshair = el.querySelector('[data-crosshair]') as HTMLElement;
     this.note = el.querySelector('[data-note]') as HTMLElement;
@@ -57,6 +60,7 @@ export class Hud {
     this.bearing = el.querySelector('[data-bearing]') as SVGTextElement;
     this.money = el.querySelector('[data-money]') as HTMLElement;
     this.weak = el.querySelector('[data-weak]') as HTMLElement;
+    this.subtitle = el.querySelector('[data-subtitle]') as HTMLElement;
     this.bars = {
       hunger: el.querySelector('[data-bar="hunger"]') as HTMLElement,
       thirst: el.querySelector('[data-bar="thirst"]') as HTMLElement,
@@ -106,6 +110,12 @@ export class Hud {
     this.shown.weak = v;
     this.weak.style.setProperty('--weak', String(v));
     this.weak.classList.toggle('hud-weak-on', v > 0);
+  }
+
+  /** What somebody says to you (name: text), or nothing. */
+  setSubtitle(text: string | undefined): void {
+    if (text) this.subtitle.textContent = text;
+    this.subtitle.classList.toggle('hud-subtitle-shown', !!text);
   }
 
   /** A short message in the middle of the screen (e.g. at the fuel pump); fades after a few seconds. */

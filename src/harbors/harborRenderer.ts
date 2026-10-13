@@ -337,6 +337,16 @@ export class HarborRenderer {
     return tops;
   }
 
+  /** Villages built so far whose shore point is within `radius` (for their people). */
+  villagesNear(x: number, z: number, radius: number): Array<{ id: number; walkways: Village['walkways'] }> {
+    const out: Array<{ id: number; walkways: Village['walkways'] }> = [];
+    for (const [id, v] of this.villages) {
+      const h = this.data.harbors.items[id];
+      if (Math.hypot(h.x - x, h.z - z) < radius) out.push({ id, walkways: v.walkways });
+    }
+    return out;
+  }
+
   /** The nearest fuel pump (pier heads of the villages around) within `radius`, if any. */
   nearestFuelPump(x: number, z: number, radius: number): { x: number; y: number; z: number; rotY: number; distance: number } | undefined {
     let best: { x: number; y: number; z: number; rotY: number; distance: number } | undefined;

@@ -15,6 +15,7 @@ import { PerformanceGovernor } from './core/performance';
 import { clearSavedBoat, loadBoat, loadPlayer, saveBoat, savePlayer } from './core/save';
 import { ECONOMY, Economy, euros, PRODUCTS, type ProductId } from './economy/economy';
 import { Pantry } from './boat/pantry';
+import { People } from './people/people';
 import { CoastLines } from './geo/coastLines';
 import { Coastline, type CoastData } from './geo/coastline';
 import { HarborData } from './harbors/harborData';
@@ -197,9 +198,10 @@ const walk = new WalkMode(camera, renderer.domElement, boat, waves, terrain, har
 walk.enter();
 // Marina houses: walk in through the door (same sound as the cabin door), a gallery of photos of the
 // place and a poster about it inside (baked by scripts/bake-marinas.ts, photos fetched when near).
+const marinaInfo = new MarinaInfoStore(`${import.meta.env.BASE_URL}data/marinas/`);
 const marinaHouses = new MarinaHouses(
   harbors,
-  new MarinaInfoStore(`${import.meta.env.BASE_URL}data/marinas/`),
+  marinaInfo,
   walk.clickables,
   (opening) => doorSound.play(opening, seaSound.muted),
   () => walk.person,
@@ -500,12 +502,43 @@ function frame(timestamp: number): void {
   updateVhf(dt);
   updateFuelBerth(dt);
   updateWildlife(dt, time);
+  updatePeople(dt, time);
 
 
   renderer.render(scene, camera);
   input.endFrame();
 }
 renderer.setAnimationLoop(frame);
+
+// People in the marinas: they walk around and talk to you when you stand in front of them.
+const people = new People(
+  harbors,
+  harborData,
+  marinaInfo,
+  (x, z) => terrain.heightAt(x, z) ?? groundFor(terrainParams).height(x, z),
+  () => ({
+    windDirection: wind.direction,
+    windSpeed: wind.speed,
+    rain: weather.state.rain,
+    fog: weather.state.fog,
+    boatDistance: walk.position.distanceTo(boat.position),
+    hunger: economy.hunger,
+    thirst: economy.thirst,
+  }),
+  (text) => hud.setSubtitle(text),
+  { busy: () => vhfSound.receiving, hold: (on) => (vhfSound.hold = on) },
+);
+scene.add(people.renderer.mesh);
+soundFolder.add(people, 'volume', 0, 1, 0.05).name('people talking');
+const lookDir = new THREE.Vector3();
+function updatePeople(dt: number, time: number): void {
+  camera.getWorldDirection(lookDir);
+  lookDir.y = 0;
+  if (lookDir.lengthSq() < 1e-6) lookDir.set(0, 0, -1);
+  lookDir.normalize();
+  people.muted = seaSound.muted;
+  people.update(dt, time, walk.position, { x: lookDir.x, z: lookDir.z }, walk.person.mode !== 'swim');
+}
 
 /** Hunger and thirst grow with time; the HUD shows them and the money, and warns when it gets low. */
 let weakness = 0;
@@ -658,4 +691,4 @@ function updateVhf(dt: number): void {
 }
 
 // Dev-only handle for poking at the scene from the browser console.
-if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, marinaHouses, seaSound, engineSound, gulls, seals, ambience, vhfBrain, vhfSound, traffic, trafficRenderer, economy, pantry, environment, weather, walk, input, frame } });
+if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, marinaHouses, seaSound, engineSound, gulls, seals, ambience, vhfBrain, vhfSound, traffic, trafficRenderer, people, economy, pantry, environment, weather, walk, input, frame } });
