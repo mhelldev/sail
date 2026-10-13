@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PersonController, type WalkWorld } from '../person/personController';
-import { SHOP, SHOP_DOOR, SHOP_FIXTURES, shopCoversGround, shopSurfaces } from './shop';
+import { SHOP, SHOP_DISPLAYS, SHOP_DOOR, SHOP_FIXTURES, shopCoversGround, shopSurfaces } from './shop';
 
 // The shop at the origin on flat ground 0.3 m above its base (the base is sunk, like in the village).
 const GROUND = 0.3;
@@ -45,6 +45,22 @@ describe('supermarket', () => {
       expect(f.z1).toBeLessThan(SHOP.depth / 2 - SHOP.wall - 0.8);
       expect(f.x1 < -SHOP_DOOR.halfWidth || f.x0 > SHOP_DOOR.halfWidth || f.z1 < 0, f.name).toBe(true);
       expect(f.top + SHOP.floor).toBeLessThan(SHOP.ceiling);
+    }
+  });
+
+  it('has a price tag under every product you can buy, inside the shop', () => {
+    const products = new Set(SHOP_DISPLAYS.map((d) => d.product));
+    expect(products).toEqual(new Set(['apple', 'orange', 'pear', 'banana', 'bread', 'rolls', 'water', 'milk', 'juice', 'chocolate']));
+    for (const d of SHOP_DISPLAYS) {
+      expect(d.tag.y, d.product).toBeLessThan(d.box.y1);
+      expect(d.tag.y).toBeGreaterThan(SHOP.floor);
+      expect(Math.abs(d.tag.x)).toBeLessThan(SHOP.width / 2 - SHOP.wall);
+      expect(Math.abs(d.tag.z)).toBeLessThan(SHOP.depth / 2 - SHOP.wall);
+      // The tag is at the box's edge on the side it faces (where you stand).
+      const nx = Math.round(Math.sin(d.tag.rotY));
+      const nz = Math.round(Math.cos(d.tag.rotY));
+      const centre = { x: (d.box.x0 + d.box.x1) / 2, z: (d.box.z0 + d.box.z1) / 2 };
+      expect((d.tag.x - centre.x) * nx + (d.tag.z - centre.z) * nz).toBeGreaterThan(0);
     }
   });
 });

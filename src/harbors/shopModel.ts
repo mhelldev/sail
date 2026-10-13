@@ -10,7 +10,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import alea from 'alea';
 import { canvasTexture, slab, wallFace, type MarinaHouseAssets } from './marinaHouseModel';
-import { SHOP, SHOP_DOOR, SHOP_FIXTURES, SHOP_SIGN, SHOP_STEPS, SHOP_WINDOWS, type Fixture } from './shop';
+import { DRINK_SHELF, FRUIT_FILLS, SHOP, SHOP_DISPLAYS, SHOP_DOOR, SHOP_FIXTURES, SHOP_SIGN, SHOP_STEPS, SHOP_WINDOWS, type Fixture } from './shop';
+import { euros, PRODUCTS, type ProductId } from '../economy/economy';
 import type { MarinaHouseSite } from './village';
 
 const W = SHOP.width;
@@ -107,6 +108,27 @@ function cardCanvas(text: string, color: string): HTMLCanvasElement {
   g.textBaseline = 'middle';
   g.font = `700 44px 'Helvetica Neue', Helvetica, Arial, sans-serif`;
   g.fillText(text, c.width / 2, c.height / 2 + 2);
+  return c;
+}
+
+/** Price tag: big price in euros, the product's name above it. */
+function tagCanvas(name: string, price: number): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 116;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#fff9d6';
+  g.fillRect(0, 0, c.width, c.height);
+  g.fillStyle = '#d6372e';
+  g.fillRect(0, 0, c.width, 30);
+  g.fillStyle = '#ffffff';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = `700 22px 'Helvetica Neue', Helvetica, Arial, sans-serif`;
+  g.fillText(name.toUpperCase(), c.width / 2, 16);
+  g.fillStyle = '#1c1c1c';
+  g.font = `800 60px 'Helvetica Neue', Helvetica, Arial, sans-serif`;
+  g.fillText(euros(price), c.width / 2, 76);
   return c;
 }
 
@@ -276,6 +298,16 @@ function stockRun(g: Goods, rng: () => number, kind: number, length: number, dep
         }
       }
       break;
+    case 6: // milk only
+    case 7: // orange juice only
+      for (let x = 0.05; x < length - 0.05; x += 0.085) {
+        for (let r = 0; r < rows; r++) {
+          const milk = kind === 6;
+          g.add('box', milk ? 0xf4f4f0 : 0xf2a33a, x, 0, rowZ(r), 0.07, 0.19, 0.07);
+          g.add('box', milk ? 0x2f6fb5 : 0x3a9d5d, x, 0.06, rowZ(r) + 0.031, 0.072, 0.05, 0.01);
+        }
+      }
+      break;
     default: // bags of pasta / coffee lying flat, a few high
       for (let x = 0.08; x < length - 0.08; x += 0.15) {
         const stack = 1 + Math.floor(rng() * Math.min(3, room / 0.07));
@@ -285,7 +317,17 @@ function stockRun(g: Goods, rng: () => number, kind: number, length: number, dep
 }
 
 /** A shelf unit along local +X with its back at local z = 0, front towards +Z; boards at `levels`. */
-function shelfUnit(g: Goods, rng: () => number, length: number, depth: number, levels: number[], top: number, back = true): void {
+function shelfUnit(
+  g: Goods,
+  rng: () => number,
+  length: number,
+  depth: number,
+  levels: number[],
+  top: number,
+  back = true,
+  /** runs that are always the same (the products with price tags): on the board at `level`, kind from x0 to x1 */
+  fixed?: { level: number; runs: Array<[kind: number, x0: number, x1: number]> },
+): void {
   if (back) g.slab(SHELF_METAL, 0, length, 0, top, 0, 0.03);
   for (const x of [0.02, length - 0.02]) g.slab(0x9aa0a6, x - 0.02, x + 0.02, 0, top, 0, depth);
   g.slab(0x5a5f66, 0, length, 0, levels[0] - 0.02, 0.02, depth); // kick plate
@@ -294,6 +336,10 @@ function shelfUnit(g: Goods, rng: () => number, length: number, depth: number, l
     g.slab(0xf2c230, 0.04, length - 0.04, y - 0.06, y - 0.02, depth - 0.005, depth); // price rail
     const room = (levels[i + 1] ?? top) - y - 0.05;
     let x = 0.06;
+    if (fixed && Math.abs(fixed.level - y) < 1e-6) {
+      for (const [kind, x0, x1] of fixed.runs) g.frame(x0, y, 0.03, 0, 0, 0, () => stockRun(g, rng, kind, x1 - x0, depth - 0.03, room));
+      x = fixed.runs[fixed.runs.length - 1][2] + 0.02;
+    }
     while (x < length - 0.3) {
       const run = Math.min(length - 0.06 - x, 0.5 + rng() * 0.8);
       g.frame(x, y, 0.03, 0, 0, 0, () => stockRun(g, rng, Math.floor(rng() * 6), run, depth - 0.03, room));
@@ -362,7 +408,8 @@ function interior(seed: string): THREE.BufferGeometry {
   // Back wall shelves: their back against the wall, front (+Z) into the room.
   {
     const f = fx('shelvesBack');
-    g.frame(f.x0, FLOOR, f.z0, 0, 0, 0, () => shelfUnit(g, rng, f.x1 - f.x0, f.z1 - f.z0, [0.15, 0.55, 0.95, 1.35], f.top));
+    const drinks = { level: DRINK_SHELF.level, runs: [[6, ...DRINK_SHELF.milk], [7, ...DRINK_SHELF.juice]] as Array<[number, number, number]> };
+    g.frame(f.x0, FLOOR, f.z0, 0, 0, 0, () => shelfUnit(g, rng, f.x1 - f.x0, f.z1 - f.z0, [0.15, 0.55, 0.95, 1.35], f.top, true, drinks));
   }
 
   // The middle shelf, stocked on both sides.
@@ -382,12 +429,11 @@ function interior(seed: string): THREE.BufferGeometry {
     g.slab(DARK_WOOD, f.x0, f.x0 + 0.35, FLOOR + 0.62, FLOOR + 0.85, f.z0, f.z1);
     const n = Math.floor(len / 0.5);
     const cw = len / n;
-    let fill = Math.floor(rng() * 10);
     for (let i = 0; i < n; i++) {
       const z = f.z0 + cw * (i + 0.5);
-      // Front tier (lower, tilted towards the room) and back tier (higher).
-      g.frame(f.x1 - 0.24, FLOOR + 0.66, z, 0, Math.PI / 2, -0.25, () => crate(g, rng, cw - 0.04, 0.44, fill++ % 10));
-      g.frame(f.x0 + 0.2, FLOOR + 0.88, z, 0, Math.PI / 2, -0.3, () => crate(g, rng, cw - 0.04, 0.36, fill++ % 10));
+      // Front tier (lower, tilted towards the room) and back tier (higher); fixed contents (price tags).
+      g.frame(f.x1 - 0.24, FLOOR + 0.66, z, 0, Math.PI / 2, -0.25, () => crate(g, rng, cw - 0.04, 0.44, FRUIT_FILLS.front[i % 8]));
+      g.frame(f.x0 + 0.2, FLOOR + 0.88, z, 0, Math.PI / 2, -0.3, () => crate(g, rng, cw - 0.04, 0.36, FRUIT_FILLS.back[i % 8]));
     }
   }
 
@@ -471,9 +517,12 @@ function interior(seed: string): THREE.BufferGeometry {
       g.add('box', 0x13202c, 0, 0.27, -0.05, 0.32, 0.22, 0.03, -0.3); // screen
       g.add('box', 0x303030, 0.32, 0, 0.1, 0.09, 0.05, 0.17, 0.25); // card terminal
     });
-    // Sweets rack on the front (queue) side.
+    // Chocolate bars on a rack on the front side: purple wrappers with a white band.
     for (let y = 0.2; y < 0.8; y += 0.2) {
-      for (let x = f.x0 + 0.1; x < f.x1 - 0.1; x += 0.11) g.add('box', PACKAGING[Math.floor(rng() * PACKAGING.length)], x, FLOOR + y, f.z0 - 0.06, 0.09, 0.14, 0.05);
+      for (let x = f.x0 + 0.1; x < f.x1 - 0.1; x += 0.11) {
+        g.add('box', 0x6a2f8a, x, FLOOR + y, f.z0 - 0.06, 0.09, 0.14, 0.03);
+        g.add('box', 0xf2f0e8, x, FLOOR + y + 0.05, f.z0 - 0.06, 0.092, 0.035, 0.032);
+      }
     }
   }
 
@@ -506,6 +555,9 @@ export class ShopAssets {
   readonly goods = new THREE.MeshBasicMaterial({ vertexColors: true });
   readonly sign: THREE.MeshStandardMaterial;
   readonly cards: THREE.MeshBasicMaterial[];
+  /** price tag per product, and its plane */
+  readonly tags = new Map<ProductId, THREE.MeshBasicMaterial>();
+  readonly tagGeometry = new THREE.PlaneGeometry(0.22, 0.1);
   private goodsGeometry?: THREE.BufferGeometry;
 
   /** Furniture and goods: the same in every shop, built on first use (~10 ms), then shared. */
@@ -529,6 +581,7 @@ export class ShopAssets {
       ['BAKERY', '#b5773a'],
       ['WATER', '#2a63b8'],
     ].map(([text, color]) => new THREE.MeshBasicMaterial({ map: canvasTexture(cardCanvas(text, color)) }));
+    for (const p of Object.values(PRODUCTS)) this.tags.set(p.id, new THREE.MeshBasicMaterial({ map: canvasTexture(tagCanvas(p.name, p.price)) }));
   }
 
   setNight(night: number): void {
@@ -541,6 +594,8 @@ export class ShopModel {
   /** the glass door (click to open/close); rotates around its hinge */
   readonly door = new THREE.Group();
   doorOpen = false;
+  /** click targets of the goods with a price tag (click = buy) */
+  readonly products: Array<{ object: THREE.Object3D; product: ProductId }> = [];
   private readonly inside = new THREE.Group();
   private readonly glass: THREE.MeshStandardMaterial;
   private doorAmount = 0;
@@ -706,6 +761,19 @@ export class ShopModel {
     this.mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0).rotateX(-Math.PI / 2).translate(0, FLOOR + 0.002, 0), a.floor, this.inside);
     this.mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0).rotateX(Math.PI / 2).translate(0, CEIL - 0.001, 0), a.ceiling, this.inside);
     this.inside.add(new THREE.Mesh(a.interior, a.goods)); // shared: not disposed with the shop
+
+    // Price tags under the goods, and an invisible box over each display to click.
+    const hit = new THREE.MeshBasicMaterial({ visible: false });
+    this.owned.push(hit);
+    for (const d of SHOP_DISPLAYS) {
+      const tag = new THREE.Mesh(a.tagGeometry, a.tags.get(d.product)!);
+      tag.position.set(d.tag.x, d.tag.y, d.tag.z);
+      tag.rotation.y = d.tag.rotY;
+      this.inside.add(tag);
+      const b = d.box;
+      const target = this.mesh(new THREE.BoxGeometry(b.x1 - b.x0, b.y1 - b.y0, b.z1 - b.z0).translate((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2), hit, this.inside);
+      this.products.push({ object: target, product: d.product });
+    }
 
     // Department cards hanging over the fruit, the bread and the water.
     const card = (m: THREE.Material, x: number, z: number, rotY: number) => {

@@ -270,3 +270,103 @@ body.touch .lil-gui.lil-root {
 .fps-low {
   color: #ffb4a2;
 }
+
+/* ---- Money, hunger and thirst (top left) ---- */
+.hud-status {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 8px 10px 9px;
+  border-radius: 8px;
+  background: rgba(10, 16, 22, 0.55);
+  color: #f2f2ea;
+  font: 600 13px/1.2 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  pointer-events: none;
+  min-width: 150px;
+}
+.hud-money {
+  font-size: 19px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 6px;
+}
+.hud-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.hud-bar-label {
+  width: 36px;
+  font-size: 11px;
+  opacity: 0.85;
+}
+.hud-bar-track {
+  flex: 1;
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+.hud-bar-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 4px;
+  background: #7fc66b;
+}
+.hud-bar[data-bar='thirst'] .hud-bar-fill {
+  background: #5fb2e6;
+}
+.hud-bar-low .hud-bar-fill,
+.hud-bar[data-bar='thirst'].hud-bar-low .hud-bar-fill {
+  background: #e6a23c;
+}
+.hud-bar-empty .hud-bar-label {
+  color: #ff6b5a;
+  animation: hud-blink 1s steps(2) infinite;
+}
+@keyframes hud-blink {
+  50% {
+    opacity: 0.3;
+  }
+}
+body.binoculars-up .hud-status {
+  display: none;
+}
+
+/* ---- Weak from hunger / thirst: the view darkens from the edges, pulsing ---- */
+.hud-weak {
+  --weak: 0;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+  /* The clear middle shrinks as weakness grows. */
+  /* closest-side: fully dark at the screen edges (and beyond, in the corners). */
+  background: radial-gradient(
+    ellipse closest-side at center,
+    transparent calc(70% - 45% * var(--weak)),
+    rgba(12, 2, 2, 0.95) 100%
+  );
+  opacity: var(--weak);
+}
+.hud-weak-on {
+  display: block;
+  animation: hud-heartbeat 1.6s ease-in-out infinite;
+}
+@keyframes hud-heartbeat {
+  0%,
+  100% {
+    opacity: var(--weak);
+  }
+  12% {
+    opacity: calc(var(--weak) * 1.25);
+  }
+  24% {
+    opacity: calc(var(--weak) * 0.9);
+  }
+  36% {
+    opacity: calc(var(--weak) * 1.2);
+  }
+}

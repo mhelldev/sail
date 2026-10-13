@@ -4,7 +4,7 @@ import { addCabinProps } from './cabinProps';
 import { Parts, type Rect } from './parts';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
-  BENCH, CABIN, COCKPIT, DOOR, ENGINE_PANEL, FRONT_WINDOWS, HALF_BEAM, HELM, LENGTH, MAST_TOP, MAST_Z, PANEL, RAIL, SETTEE, SIDE_WINDOW, STAIRS, TABLE, THROTTLE, VHF, VHF_REMOTE,
+  BENCH, CABIN, COCKPIT, DOOR, ENGINE_PANEL, FRONT_WINDOWS, HALF_BEAM, HELM, LENGTH, MAST_TOP, MAST_Z, PANEL, PANTRY, RAIL, SETTEE, SIDE_WINDOW, STAIRS, TABLE, THROTTLE, VHF, VHF_REMOTE,
   deckY, halfWidth, keelY, stationT, stationZ,
 } from './layout';
 
@@ -230,7 +230,8 @@ export class BoatModel {
   private readonly windex = new THREE.Group();
   private sailAmount = 1;
   private readonly glass: THREE.MeshStandardMaterial;
-  private readonly interior: THREE.MeshStandardMaterial[];
+  /** cabin materials (slightly self-lit, brighter at night); more can be added (the pantry's goods) */
+  readonly interior: THREE.MeshStandardMaterial[];
   private readonly interiorBase = new Map<THREE.MeshStandardMaterial, number>();
   private readonly lamp: THREE.MeshBasicMaterial;
   private readonly navLights: THREE.Points;
@@ -330,6 +331,12 @@ export class BoatModel {
     parts.pair(cushion, SETTEE.outer - L - 0.1, SETTEE.outer - L, SETTEE.top, SETTEE.top + 0.42, SETTEE.z0, SETTEE.z1);
     parts.box(wood, -TABLE.halfWidth, TABLE.halfWidth, TABLE.top - 0.05, TABLE.top, TABLE.z0, TABLE.z1);
     parts.box(wood, -0.05, 0.05, C.floor, TABLE.top - 0.05, (TABLE.z0 + TABLE.z1) / 2 - 0.05, (TABLE.z0 + TABLE.z1) / 2 + 0.05);
+    // Pantry shelf on the starboard wall: two boards with fiddle rails, end panels (the groceries on it: Pantry).
+    for (const y of PANTRY.boards) {
+      parts.box(wood, PANTRY.inner, PANTRY.outer, y - 0.025, y, PANTRY.z0, PANTRY.z1);
+      parts.box(wood, PANTRY.inner, PANTRY.inner + 0.02, y, y + 0.06, PANTRY.z0, PANTRY.z1);
+    }
+    for (const z of [PANTRY.z0 - 0.02, PANTRY.z1]) parts.box(wood, PANTRY.inner, PANTRY.outer, PANTRY.boards[0] - 0.12, PANTRY.boards[1] + 0.3, z, z + 0.02);
     // Coffee, chart, books, clock… (and a lifebuoy outside).
     const props = addCabinProps(this.tilt, parts, this.lamp);
     this.interior.push(...props.materials);

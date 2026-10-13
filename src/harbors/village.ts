@@ -70,7 +70,7 @@ export interface Village {
   /** lamps that glow at night: harbour lights, street lamps */
   lights: Array<{ x: number; y: number; z: number; color: number }>;
   /** fuel pump at the pier head (the fuel berth), standing on the deck at y */
-  fuel?: { x: number; y: number; z: number };
+  fuel?: { x: number; y: number; z: number; rotY: number };
   /** the marina house (harbour office) you can walk into; drawn by `MarinaHouses` when near */
   marinaHouse?: MarinaHouseSite;
   /** the supermarket on the other side of the pier root; drawn by `MarinaHouses` when near */
@@ -166,7 +166,7 @@ export function generateVillage(h: Harbor, ground: Ground, options: { hasRealLig
     const post = at(-1.2, pierLen - 1);
     add({ type: 'fuelPost', x: post.x, y: deckTop, z: post.z, rotY: 0, sx: 0.1, sy: 3, sz: 0.1, color: 0x9a9a9a });
     add({ type: 'fuelSign', x: post.x, y: deckTop + 2.2, z: post.z, rotY: alongShore, sx: 0.06, sy: 0.7, sz: 1.3, color: 0xf2c230 });
-    fuel = { x: pump.x, y: deckTop, z: pump.z };
+    fuel = { x: pump.x, y: deckTop, z: pump.z, rotY: seaward };
 
     // Pontoon fingers with moored boats on both sides.
     const fingers = big ? Math.floor(rand(4, 7)) : Math.floor(rand(2, 5));

@@ -8,6 +8,10 @@ export class Hud {
   private readonly binoculars: SVGSVGElement;
   private readonly bearing: SVGTextElement;
   private noteTimer = 0;
+  private readonly money: HTMLElement;
+  private readonly bars: Record<'hunger' | 'thirst', HTMLElement>;
+  private shown = { money: '', hunger: -1, thirst: -1, weak: -1 };
+  private readonly weak: HTMLElement;
 
   constructor(parent: HTMLElement) {
     const el = document.createElement('div');
@@ -16,6 +20,7 @@ export class Hud {
       <div class="hud-help">
         <b>↑↓←→</b> or <b>WASD</b> walk · <b>Shift</b> run · <b>Space</b> jump / climb · mouse to look, <b>right button</b> zoom ·
         <b>click + drag</b> the wheel to steer · <b>click</b> door / chart plotter / engine key + START / fuel pump at a pier head · <b>drag</b> the throttle lever · <b>E</b> sail up/down · <b>T</b> turbo ·
+        <b>click</b> goods in a supermarket to buy them, food on the pantry shelf in the cabin to eat it ·
         <b>F</b> binoculars ·
         <b>B</b> back aboard · <b>M</b> chart range · <b>V</b> sound · <b>N</b> night · <b>R</b> start · <b>G</b> tuning
       </div>
@@ -37,6 +42,12 @@ export class Hud {
           <text x="0" y="62" data-bearing>000°</text>
         </g>
       </svg>
+      <div class="hud-weak" data-weak></div>
+      <div class="hud-status" data-status>
+        <div class="hud-money" data-money>€ 0.00</div>
+        <div class="hud-bar" data-bar="hunger"><span class="hud-bar-label">Food</span><span class="hud-bar-track"><span class="hud-bar-fill"></span></span></div>
+        <div class="hud-bar" data-bar="thirst"><span class="hud-bar-label">Drink</span><span class="hud-bar-track"><span class="hud-bar-fill"></span></span></div>
+      </div>
       <div class="crosshair" data-crosshair></div>
       <div class="hud-note" data-note></div>`;
     parent.appendChild(el);
@@ -44,6 +55,12 @@ export class Hud {
     this.note = el.querySelector('[data-note]') as HTMLElement;
     this.binoculars = el.querySelector('[data-binoculars]') as SVGSVGElement;
     this.bearing = el.querySelector('[data-bearing]') as SVGTextElement;
+    this.money = el.querySelector('[data-money]') as HTMLElement;
+    this.weak = el.querySelector('[data-weak]') as HTMLElement;
+    this.bars = {
+      hunger: el.querySelector('[data-bar="hunger"]') as HTMLElement,
+      thirst: el.querySelector('[data-bar="thirst"]') as HTMLElement,
+    };
     // Mil-style reticle ticks along the horizontal line.
     const ticks = el.querySelector('[data-ticks]')!;
     for (let i = -6; i <= 6; i++) {
@@ -60,6 +77,35 @@ export class Hud {
     if (!on) return;
     const text = `${Math.round(bearing) % 360}`.padStart(3, '0') + '°';
     if (this.bearing.textContent !== text) this.bearing.textContent = text;
+  }
+
+  /**
+   * Money and how full you are (hunger / thirst 0 … 100). Called every frame: only touches the DOM
+   * when what's shown changes (whole percents, cents).
+   */
+  setStatus(money: string, hunger: number, thirst: number, low: number): void {
+    if (money !== this.shown.money) this.money.textContent = this.shown.money = money;
+    for (const [key, value] of [['hunger', hunger], ['thirst', thirst]] as const) {
+      const pct = Math.ceil(value);
+      if (pct === this.shown[key]) continue;
+      this.shown[key] = pct;
+      const bar = this.bars[key];
+      (bar.querySelector('.hud-bar-fill') as HTMLElement).style.width = `${pct}%`;
+      bar.classList.toggle('hud-bar-low', pct <= low);
+      bar.classList.toggle('hud-bar-empty', pct <= 0);
+    }
+  }
+
+  /**
+   * Weakness from hunger or thirst, 0 … 1: the edges of the view darken and close in, pulsing like a
+   * heartbeat. A gradient overlay (no blur filter: that would cost a full-screen pass every frame).
+   */
+  setWeakness(amount: number): void {
+    const v = Math.round(amount * 50) / 50;
+    if (v === this.shown.weak) return;
+    this.shown.weak = v;
+    this.weak.style.setProperty('--weak', String(v));
+    this.weak.classList.toggle('hud-weak-on', v > 0);
   }
 
   /** A short message in the middle of the screen (e.g. at the fuel pump); fades after a few seconds. */

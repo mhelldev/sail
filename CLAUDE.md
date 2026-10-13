@@ -178,6 +178,25 @@ any more apart from the crosshair and the key help line: the instruments are a s
 - `trafficRenderer.ts`: one InstancedMesh per shape type; per frame vessel pose (waves, heel) × part placement.
   Vessels are solid for the player (oriented boxes in `boat.landDistance`). Measured: ~0.1 ms CPU, no visible GPU cost.
 
+## Money, hunger, thirst (`src/economy/`)
+
+- `economy.ts` (pure, tested): money (start € 150), hunger and thirst (100 = full; empty in 80 / 50 min of play),
+  the pantry (12 slots), the product catalogue (price, how much food/drink each gives). Saved in localStorage
+  (`savePlayer`, key `sail.player.v1`). Starving or parched (a bar at 0): no running (`WalkMode.exhausted`).
+  HUD top left (`Hud.setStatus`, only touches the DOM on change); warnings at 25 and 0. Tuning → Player.
+- Supermarket: the goods with a price tag are fixed displays (`SHOP_DISPLAYS` in `shop.ts`: click box + tag spot,
+  tested): fruit crates (fills in `FRUIT_FILLS`), bread and rolls on the rack, the water pallet, milk and juice at the
+  start of the back shelf (`DRINK_SHELF`), chocolate at the checkout. Clicking one buys it into the boat's pantry
+  (`MarinaHouses` → `onBuy`). Tags: one canvas material per product in `ShopAssets`.
+- Pantry: shelf on the starboard cabin wall (`layout.PANTRY`), items `boat/pantry.ts` (models `productModels.ts`);
+  click one to eat/drink it. Hit targets are visible meshes with an invisible material (only filled slots).
+- Sounds (synthesized in `Ambience`): `till()` when buying, `eat()` / `drink()` from the pantry.
+- Weakness: once a bar is at 0, a dark vignette closes in over ~1 min (stronger with both empty) and pulses like a
+  heartbeat (`Hud.setWeakness`, a CSS gradient overlay — deliberately no blur filter, which would cost a full-screen
+  pass every frame); it clears within seconds after eating/drinking.
+- Fuel costs € 1.95/L (`ECONOMY.fuelPrice`), paid as it flows; filling stops when the money runs out. A price
+  board follows the nearest pump (like the pump's click target).
+
 ## Night and weather (`src/world/environment.ts`, `src/weather/`)
 
 - The sky box, stars and fog dome are re-centred on the camera every frame (a sky box left at the origin loses

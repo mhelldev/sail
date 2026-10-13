@@ -1,6 +1,8 @@
 // Remembers where the boat was between visits. Per-browser convenience only:
 // storage can be unavailable (private mode, blocked site data), so every access is guarded.
 
+import type { EconomyState } from '../economy/economy';
+
 const KEY = 'sail.boat.v1';
 
 export interface SavedBoat {
@@ -40,5 +42,27 @@ export function clearSavedBoat(): void {
     localStorage.removeItem(KEY);
   } catch {
     // ignore
+  }
+}
+
+// ---- The player: money, hunger, thirst, the pantry ----
+
+
+const PLAYER_KEY = 'sail.player.v1';
+
+export function loadPlayer(): EconomyState | undefined {
+  try {
+    const raw = localStorage.getItem(PLAYER_KEY);
+    return raw ? (JSON.parse(raw) as EconomyState) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function savePlayer(state: EconomyState): void {
+  try {
+    localStorage.setItem(PLAYER_KEY, JSON.stringify(state));
+  } catch {
+    // ignore full or blocked storage
   }
 }

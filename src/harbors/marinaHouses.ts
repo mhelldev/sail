@@ -13,6 +13,7 @@ import type { MarinaInfoStore } from './marinaInfo';
 import { SHOP, SHOP_DOOR, shopCoversGround, shopSurfaces } from './shop';
 import { ShopAssets, ShopModel } from './shopModel';
 import type { MarinaHouseSite } from './village';
+import type { ProductId } from '../economy/economy';
 
 const BUILD_RADIUS = 350; // detailed house within this distance
 const DROP_RADIUS = 550;
@@ -45,6 +46,8 @@ interface Model {
   readonly passable: boolean;
   update(dt: number, near: boolean, night: number): void;
   dispose(): void;
+  /** goods to buy (the shop) */
+  readonly products?: Array<{ object: THREE.Object3D; product: ProductId }>;
 }
 
 export class MarinaHouses {
@@ -52,7 +55,8 @@ export class MarinaHouses {
   private readonly assets = new MarinaHouseAssets();
   private readonly shopAssets = new ShopAssets();
   private readonly models = new Map<string, Model>();
-  private readonly clickables = new Map<string, Clickable>();
+  /** door and goods of each building, as registered with the walker */
+  private readonly clickables = new Map<string, Clickable[]>();
   /** door open per building (buildings without a model keep theirs) */
   private readonly doors = new Map<string, boolean>();
   private readonly prefetched = new Set<number>();
@@ -68,6 +72,8 @@ export class MarinaHouses {
     private readonly onDoor: (opening: boolean) => void,
     /** where the person stands (feet), so the door isn't shut on them */
     private readonly person: () => { x: number; z: number },
+    /** a product in a shop was clicked */
+    private readonly onBuy: (product: ProductId) => void = () => {},
   ) {
     // The shops' shared interior takes a few dozen ms to build: do it while the browser is idle.
     const idle = window.requestIdleCallback ?? ((fn: () => void) => window.setTimeout(fn, 3000));
@@ -166,16 +172,18 @@ export class MarinaHouses {
         this.onDoor(model.doorOpen);
       },
     };
-    this.clickables.set(id, click);
-    this.walkClickables.push(click);
+    const clicks = [click, ...(model.products ?? []).map((p) => ({ object: p.object, onClick: () => this.onBuy(p.product) }))];
+    this.clickables.set(id, clicks);
+    this.walkClickables.push(...clicks);
   }
 
   private drop(id: string): void {
     this.models.get(id)?.dispose();
     this.models.delete(id);
-    const click = this.clickables.get(id);
-    const i = click ? this.walkClickables.indexOf(click) : -1;
-    if (i >= 0) this.walkClickables.splice(i, 1);
+    for (const click of this.clickables.get(id) ?? []) {
+      const i = this.walkClickables.indexOf(click);
+      if (i >= 0) this.walkClickables.splice(i, 1);
+    }
     this.clickables.delete(id);
   }
 

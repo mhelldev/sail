@@ -77,6 +77,45 @@ export class Ambience {
     }
   }
 
+  /** The till in the supermarket: the drawer clunks open, then a bright "ka-ching". */
+  till(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.out) return;
+    const t = ctx.currentTime + 0.02;
+    this.noiseAt(t, 0.06, 0.12, 'lowpass', 900, 1);
+    this.noiseAt(t + 0.08, 0.04, 0.1, 'bandpass', 2500, 2);
+    for (const [ratio, amp] of [[1, 1], [2.76, 0.45], [5.4, 0.2]]) {
+      this.toneAt(t + 0.1, 2100 * ratio, 2100 * ratio, 0.7, 0.05 * amp, 'sine');
+      this.toneAt(t + 0.22, 2650 * ratio, 2650 * ratio, 0.9, 0.05 * amp, 'sine');
+    }
+  }
+
+  /** Biting and chewing: a crisp bite, then a few dull crunches. */
+  eat(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.out) return;
+    let t = ctx.currentTime + 0.02;
+    this.noiseAt(t, 0.07, 0.14, 'bandpass', 3200, 1.2);
+    t += 0.25;
+    for (let i = 0; i < 5; i++) {
+      this.noiseAt(t, 0.05 + Math.random() * 0.04, 0.06 + Math.random() * 0.04, 'bandpass', 1200 + Math.random() * 1400, 1.5);
+      t += 0.22 + Math.random() * 0.12;
+    }
+  }
+
+  /** Drinking: three gulps (a falling, throaty "glk"). */
+  drink(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.out) return;
+    let t = ctx.currentTime + 0.05;
+    for (let i = 0; i < 3; i++) {
+      this.toneAt(t, 520 - i * 30, 180, 0.12, 0.12, 'sine');
+      this.noiseAt(t + 0.02, 0.05, 0.03, 'lowpass', 700, 1);
+      t += 0.42 + Math.random() * 0.08;
+    }
+    this.noiseAt(t, 0.12, 0.04, 'lowpass', 500, 1); // "ahh"
+  }
+
   /**
    * A gull's call — a few falling "kyow"s.
    * @param pan -1 left … 1 right
@@ -138,6 +177,41 @@ export class Ambience {
       osc.stop(t + 0.5);
     }
     window.setTimeout(() => panner.disconnect(), 700);
+  }
+
+  /** Filtered noise starting at `t` (seconds, context time). */
+  private noiseAt(t: number, seconds: number, level: number, type: BiquadFilterType, freq: number, q: number): void {
+    const ctx = this.ctx!;
+    const source = ctx.createBufferSource();
+    source.buffer = this.noise!;
+    const filter = ctx.createBiquadFilter();
+    filter.type = type;
+    filter.frequency.value = freq;
+    filter.Q.value = q;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(level, t + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + seconds);
+    source.connect(filter).connect(gain).connect(this.out!);
+    source.start(t, Math.random() * 2, seconds + 0.02);
+    source.onended = () => gain.disconnect();
+  }
+
+  /** A tone gliding from `f0` to `f1` Hz, starting at `t`. */
+  private toneAt(t: number, f0: number, f1: number, seconds: number, level: number, type: OscillatorType): void {
+    const ctx = this.ctx!;
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(f0, t);
+    osc.frequency.exponentialRampToValueAtTime(f1, t + seconds);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(level, t + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + seconds);
+    osc.connect(gain).connect(this.out!);
+    osc.start(t);
+    osc.stop(t + seconds + 0.02);
+    osc.onended = () => gain.disconnect();
   }
 
   /** A filtered burst of noise (sail slaps). */

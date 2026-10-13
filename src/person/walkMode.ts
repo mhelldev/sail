@@ -62,6 +62,8 @@ export class WalkMode {
   readonly person = new PersonController();
   /** helm position while the wheel is held by hand, otherwise null */
   steer: number | null = null;
+  /** starving or parched: no running */
+  exhausted = false;
   /** the wheel (or something clickable) is under the crosshair and within reach */
   canGrab = false;
   /** looking through the binoculars (F): 10× zoom, no grabbing or clicking */
@@ -264,7 +266,7 @@ export class WalkMode {
     const right = (input.isDown('ArrowRight', 'KeyD') ? 1 : 0) - (input.isDown('ArrowLeft', 'KeyA') ? 1 : 0) + (j?.right ?? 0);
     // You face where you look (that's also where you climb out of the water).
     p.facing = Math.atan2(Math.sin(this.yaw), -Math.cos(this.yaw));
-    const run = input.isDown('ShiftLeft', 'ShiftRight') || Math.hypot(j?.forward ?? 0, j?.right ?? 0) > 0.98;
+    const run = !this.exhausted && (input.isDown('ShiftLeft', 'ShiftRight') || Math.hypot(j?.forward ?? 0, j?.right ?? 0) > 0.98);
     p.step(dt, { forward: clamp1(forward), right: clamp1(right), jump: input.wasPressed('Space'), run }, this.yaw, this.world);
 
     // Eyes: at head height, or just above the surface while swimming.

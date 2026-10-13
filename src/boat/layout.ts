@@ -45,6 +45,11 @@ export const STAIRS = [
 /** Settees along both sides of the saloon table. */
 export const SETTEE = { inner: 0.75, outer: CABIN.halfWidth, z0: -2.7, z1: -0.3, top: 0.5 };
 export const TABLE = { halfWidth: 0.35, z0: -2.3, z1: -0.9, top: 0.85 };
+/**
+ * Pantry: an open shelf on the starboard cabin wall between the settee and the steps, two boards
+ * of `slots` places each, for the food and drinks bought ashore.
+ */
+export const PANTRY = { inner: CABIN.halfWidth - 0.29, outer: CABIN.halfWidth - 0.015, z0: -0.2, z1: 1.2, boards: [0.95, 1.38], slots: 6 };
 
 /** The cockpit well behind the deckhouse, lower than the deck. */
 export const COCKPIT = { halfWidth: 1.15, front: CABIN.back, back: 5.6, floor: 0.75 };

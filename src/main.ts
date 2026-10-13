@@ -12,7 +12,9 @@ import { Refuelling, type RefuelProblem } from './boat/refuel';
 import { SAILING } from './boat/sailing';
 import { Input } from './core/input';
 import { PerformanceGovernor } from './core/performance';
-import { clearSavedBoat, loadBoat, saveBoat } from './core/save';
+import { clearSavedBoat, loadBoat, loadPlayer, saveBoat, savePlayer } from './core/save';
+import { ECONOMY, Economy, euros, PRODUCTS, type ProductId } from './economy/economy';
+import { Pantry } from './boat/pantry';
 import { CoastLines } from './geo/coastLines';
 import { Coastline, type CoastData } from './geo/coastline';
 import { HarborData } from './harbors/harborData';
@@ -170,9 +172,15 @@ if (saved) {
   resetBoat();
 }
 
+// Money, hunger, thirst and the food on board (saved like the boat).
+const economy = new Economy();
+const savedPlayer = loadPlayer();
+if (savedPlayer) economy.state = savedPlayer;
+
 const persist = () => {
   const g = projection.toGeo(boat.position.x, boat.position.z);
   saveBoat({ lat: g.lat, lon: g.lon, heading: boat.state.heading, sailUp: boat.sailUp, fuel: boat.engine.fuel });
+  savePlayer(economy.state);
 };
 window.setInterval(persist, 5000);
 window.addEventListener('pagehide', persist);
@@ -195,6 +203,7 @@ const marinaHouses = new MarinaHouses(
   walk.clickables,
   (opening) => doorSound.play(opening, seaSound.muted),
   () => walk.person,
+  (product) => buy(product),
 );
 scene.add(marinaHouses.group);
 walk.clickables.push(
@@ -212,6 +221,40 @@ walk.clickables.push(
   { object: boat.model.vhf, onClick: () => vhfSound.togglePower() },
   { object: boat.model.vhfRemote, onClick: () => vhfSound.togglePower() },
 );
+// The pantry shelf in the cabin: what was bought ashore lies there; click it to eat or drink it.
+const pantry = new Pantry(boat.model.tilt);
+boat.model.interior.push(pantry.material);
+pantry.show(economy.pantry);
+pantry.targets.forEach((target, slot) =>
+  walk.clickables.push({
+    object: target,
+    onClick: () => {
+      const id = economy.consume(slot);
+      if (!id) return;
+      pantry.show(economy.pantry);
+      const p = PRODUCTS[id];
+      const drinking = p.drink > p.food;
+      hud.notify(drinking ? `You drink the ${p.name.toLowerCase()}` : `You eat the ${p.name.toLowerCase()}`, 2);
+      if (drinking) ambience.drink();
+      else ambience.eat();
+    },
+  }),
+);
+/** A product in a supermarket was clicked: pay, and it goes into the pantry on the boat. */
+function buy(id: ProductId): void {
+  const p = PRODUCTS[id];
+  const result = economy.buy(id);
+  if (result === 'ok') {
+    pantry.show(economy.pantry);
+    hud.notify(`${p.name} — ${euros(p.price)}. It's in the pantry on your boat.`);
+    ambience.till();
+  } else if (result === 'no money') {
+    hud.notify(`Not enough money for ${p.name.toLowerCase()} (${euros(p.price)})`);
+  } else {
+    hud.notify('The pantry on your boat is full — eat something first');
+  }
+}
+
 // Throttle/gear lever: drag up (push forward) for ahead, down for astern; let go near upright and
 // it clicks into neutral.
 walk.draggables.push({
@@ -227,6 +270,10 @@ const refuelling = new Refuelling();
 const pumpTarget = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.9, 1.2).translate(0, 0.95, 0), new THREE.MeshBasicMaterial({ visible: false }));
 pumpTarget.visible = false;
 scene.add(pumpTarget);
+// The fuel price on a board on top of the nearest pump (the pumps are instanced, so one board follows).
+const priceBoard = createPriceBoard();
+priceBoard.visible = false;
+scene.add(priceBoard);
 const REFUEL_NOTES: Record<RefuelProblem, string> = {
   'too far': 'Bring the boat alongside the fuel berth first',
   moving: 'Stop the boat alongside first',
@@ -241,6 +288,10 @@ walk.clickables.push({
   object: pumpTarget,
   reach: 9, // the hose reaches across from the cockpit
   onClick: () => {
+    if (!refuelling.active && economy.money < 0.01) {
+      hud.notify(`No money for fuel (${euros(ECONOMY.fuelPrice)} per litre)`);
+      return;
+    }
     const was = refuelling.active;
     const problem = refuelling.toggle(boat.engine, berth());
     hud.notify(problem ? REFUEL_NOTES[problem] : was ? 'Refuelling stopped' : 'Refuelling…');
@@ -322,6 +373,21 @@ perfFolder.add(governor, 'pixelRatio').name('pixel ratio now').listen().disable(
 const trafficFolder = gui.addFolder('Traffic');
 trafficFolder.add(traffic, 'density', 0, 3, 0.1);
 trafficFolder.add({ get vessels() { return traffic.vessels.length; } }, 'vessels').listen().disable();
+const playerFolder = gui.addFolder('Player');
+playerFolder.add(economy, 'money', 0, 2000, 0.01).name('money €').listen();
+playerFolder.add(economy, 'hunger', 0, 100, 1).name('food (100 = full)').listen();
+playerFolder.add(economy, 'thirst', 0, 100, 1).name('drink (100 = full)').listen();
+playerFolder
+  .add(
+    {
+      'start over': () => {
+        economy.state = new Economy().state;
+        pantry.show(economy.pantry);
+      },
+    },
+    'start over',
+  )
+  .name('reset money, food and pantry');
 const environmentFolder = gui.addFolder('Environment');
 environmentFolder.add(environment, 'night').name('night (N)').listen();
 environmentFolder
@@ -386,6 +452,7 @@ function frame(timestamp: number): void {
   wakeMap.render(renderer, wake, boat.position.x, boat.position.z);
   water.setBoat(boat.position.x, boat.position.z, boat.state.heading, boat.state.speed);
   walk.update(dt, time, input);
+  updateNeeds(dt);
   hud.setHand(walk.holding ? 'grip' : walk.canGrab ? 'open' : 'none');
   hud.setBinoculars(walk.binoculars, walk.bearing);
   // The world is built around the player, who may have walked or swum away from the boat.
@@ -440,6 +507,28 @@ function frame(timestamp: number): void {
 }
 renderer.setAnimationLoop(frame);
 
+/** Hunger and thirst grow with time; the HUD shows them and the money, and warns when it gets low. */
+let weakness = 0;
+let warned = { hunger: 2, thirst: 2 }; // 2 = fine, 1 = told "low", 0 = told "empty"
+function updateNeeds(dt: number): void {
+  economy.update(dt);
+  walk.exhausted = economy.starving;
+  // At zero the view closes in over about a minute (more with both empty); it clears when you've eaten.
+  const both = economy.hunger <= 0 && economy.thirst <= 0;
+  const target = economy.starving ? (both ? 1 : 0.7) : 0;
+  weakness = target > weakness ? Math.min(target, weakness + dt / 60) : Math.max(target, weakness - dt / 4);
+  hud.setWeakness(weakness);
+  hud.setStatus(euros(economy.money), economy.hunger, economy.thirst, ECONOMY.low);
+  for (const [key, value, low, empty] of [
+    ['hunger', economy.hunger, "You're getting hungry — there's food in the village supermarkets", "You're starving: too weak to run. Eat something!"],
+    ['thirst', economy.thirst, "You're getting thirsty — buy something to drink", "You're parched: too weak to run. Drink something!"],
+  ] as const) {
+    const level = value <= 0 ? 0 : value <= ECONOMY.low ? 1 : 2;
+    if (level < warned[key]) hud.notify(level === 0 ? empty : low, 5);
+    warned = { ...warned, [key]: level };
+  }
+}
+
 /** Gulls, seals and the sounds around the boat: wind in the rigging, flapping sails, halyards, gull calls. */
 const local = new THREE.Vector3();
 const toGull = new THREE.Vector3();
@@ -478,16 +567,73 @@ function updateWildlife(dt: number, time: number): void {
   }
 }
 
-/** Moves the pump's click target to the nearest pier head and runs the refuelling. */
+let fuelBill = 0; // euros paid for the current fill
+
+/** "DIESEL € 1.95 /L" on both faces, base at y = 0, faces along local ±Z (out to sea and to the shore). */
+function createPriceBoard(): THREE.Group {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 144;
+  const g = canvas.getContext('2d')!;
+  g.fillStyle = '#f2c230';
+  g.fillRect(0, 0, 256, 144);
+  g.fillStyle = '#1c1c1c';
+  g.fillRect(8, 8, 240, 128);
+  g.fillStyle = '#f2c230';
+  g.textAlign = 'center';
+  g.font = `800 34px 'Helvetica Neue', Helvetica, Arial, sans-serif`;
+  g.fillText('DIESEL', 128, 48);
+  g.fillStyle = '#ff9d2e';
+  g.font = `700 50px 'Courier New', monospace`;
+  g.fillText(ECONOMY.fuelPrice.toFixed(2), 112, 110);
+  g.font = `700 22px 'Helvetica Neue', Helvetica, Arial, sans-serif`;
+  g.fillText('€/L', 210, 108);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const face = new THREE.MeshBasicMaterial({ map: texture });
+  const group = new THREE.Group();
+  const w = 0.7;
+  const h = 0.4;
+  group.add(new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.3, 0.06).translate(0, 0.15, 0), new THREE.MeshStandardMaterial({ color: 0x2b2f33 })));
+  group.add(new THREE.Mesh(new THREE.BoxGeometry(w + 0.04, h + 0.04, 0.04).translate(0, 0.3 + h / 2, 0), new THREE.MeshStandardMaterial({ color: 0x2b2f33 })));
+  for (const side of [1, -1]) {
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, h), face);
+    plane.position.set(0, 0.3 + h / 2, side * 0.021);
+    if (side < 0) plane.rotation.y = Math.PI;
+    group.add(plane);
+  }
+  return group;
+}
+
+/** Moves the pump's click target to the nearest pier head and runs the refuelling (and the bill). */
 function updateFuelBerth(dt: number): void {
   const pump = harbors.nearestFuelPump(walk.position.x, walk.position.z, 60);
   pumpTarget.visible = !!pump;
   if (pump) pumpTarget.position.set(pump.x, pump.y, pump.z);
+  const board = harbors.nearestFuelPump(walk.position.x, walk.position.z, 400);
+  priceBoard.visible = !!board;
+  if (board) {
+    priceBoard.position.set(board.x, board.y + 1.5, board.z);
+    priceBoard.rotation.y = board.rotY;
+  }
   if (!refuelling.active) return;
+  const before = boat.engine.fuel;
   const result = refuelling.update(dt, boat.engine, berth());
-  if (result === 'done') hud.notify(`Tank full — ${Math.round(boat.engine.fuel)} L`);
-  else if (result) hud.notify(`Refuelling stopped: ${REFUEL_NOTES[result as RefuelProblem].toLowerCase()}`);
-  else hud.notify(`Refuelling… ${Math.round(boat.engine.fuel)} L`, 1);
+  // Pay for what flowed in; when the money runs out, so does the diesel.
+  const litres = boat.engine.fuel - before;
+  const paid = economy.pay(litres * ECONOMY.fuelPrice);
+  fuelBill += paid;
+  if (paid < litres * ECONOMY.fuelPrice - 1e-6) {
+    boat.engine.fuel = before + paid / ECONOMY.fuelPrice;
+    refuelling.active = false;
+    hud.notify(`Out of money — ${Math.round(boat.engine.fuel)} L in the tank (paid ${euros(fuelBill)})`);
+    fuelBill = 0;
+    return;
+  }
+  if (result === 'done') hud.notify(`Tank full — ${Math.round(boat.engine.fuel)} L, paid ${euros(fuelBill)}`);
+  else if (result) hud.notify(`Refuelling stopped: ${REFUEL_NOTES[result as RefuelProblem].toLowerCase()} (paid ${euros(fuelBill)})`);
+  else hud.notify(`Refuelling… ${Math.round(boat.engine.fuel)} L · ${euros(fuelBill)}`, 1);
+  if (result) fuelBill = 0;
 }
 
 /** The VHF listens to what happens around the boat; the brain decides who speaks (twice a second). */
@@ -512,4 +658,4 @@ function updateVhf(dt: number): void {
 }
 
 // Dev-only handle for poking at the scene from the browser console.
-if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, marinaHouses, seaSound, engineSound, gulls, seals, ambience, vhfBrain, vhfSound, traffic, trafficRenderer, environment, weather, walk, input, frame } });
+if (import.meta.env.DEV) Object.assign(window, { __sail: { scene, camera, renderer, boat, water, waves, wind, coastline, projection, terrain, shoreMap, wake, wakeMap, harbors, harborData, marinaHouses, seaSound, engineSound, gulls, seals, ambience, vhfBrain, vhfSound, traffic, trafficRenderer, economy, pantry, environment, weather, walk, input, frame } });

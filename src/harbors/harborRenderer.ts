@@ -338,8 +338,8 @@ export class HarborRenderer {
   }
 
   /** The nearest fuel pump (pier heads of the villages around) within `radius`, if any. */
-  nearestFuelPump(x: number, z: number, radius: number): { x: number; y: number; z: number; distance: number } | undefined {
-    let best: { x: number; y: number; z: number; distance: number } | undefined;
+  nearestFuelPump(x: number, z: number, radius: number): { x: number; y: number; z: number; rotY: number; distance: number } | undefined {
+    let best: { x: number; y: number; z: number; rotY: number; distance: number } | undefined;
     for (const v of this.villages.values()) {
       if (!v.fuel) continue;
       const d = Math.hypot(v.fuel.x - x, v.fuel.z - z);
