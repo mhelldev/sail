@@ -426,6 +426,11 @@ function frame(timestamp: number): void {
   if (input.wasPressed('KeyM')) minimap.zoom();
   if (input.wasPressed('KeyV')) seaSound.toggleMute();
   if (input.wasPressed('KeyN')) environment.night = !environment.night;
+  // K: money back to the start amount (food, drink and the pantry stay as they are).
+  if (input.wasPressed('KeyK')) {
+    economy.money = ECONOMY.startMoney;
+    hud.notify(`Money reset to ${euros(ECONOMY.startMoney)}`);
+  }
   if (input.wasPressed('KeyE')) boat.sailUp = !boat.sailUp;
   // F: binoculars up / down (Esc also puts them down).
   if (input.wasPressed('KeyF')) walk.binoculars = !walk.binoculars;

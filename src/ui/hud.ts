@@ -24,7 +24,7 @@ export class Hud {
         <b>click</b> goods in a supermarket to buy them, food on the pantry shelf in the cabin to eat it ·
         stand in front of people in the marinas to talk ·
         <b>F</b> binoculars ·
-        <b>B</b> back aboard · <b>M</b> chart range · <b>V</b> sound · <b>N</b> night · <b>R</b> start · <b>G</b> tuning
+        <b>B</b> back aboard · <b>M</b> chart range · <b>V</b> sound · <b>N</b> night · <b>K</b> reset money · <b>R</b> start · <b>G</b> tuning
       </div>
       <svg class="binoculars" data-binoculars viewBox="-160 -90 320 180" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
         <defs>

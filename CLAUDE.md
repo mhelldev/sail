@@ -52,7 +52,7 @@ First person only (no chase/deck/top cameras); the player starts behind the whee
 any more apart from the crosshair and the key help line: the instruments are a screen on the boat.
 
 - Keyboard: arrows/WASD walk, Shift run, Space jump (or climb out of the water), E sail up/down, T turbo,
-  B back aboard behind the wheel, M chart range, V sound, N night, F binoculars, R back to start, G tuning panel.
+  B back aboard behind the wheel, M chart range, V sound, N night, F binoculars, K reset money (to the start amount), R back to start, G tuning panel.
 - Mouse: moving it looks around at once (no click needed; a cursor resting at the left/right window edge keeps
   turning). The first click also requests pointer lock (browsers require a click), Esc releases it.
   Right button held = zoom (FOV 20°, for reading the instruments).
